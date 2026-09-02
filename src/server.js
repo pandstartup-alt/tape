@@ -6,6 +6,7 @@ import { WebSocketServer } from 'ws';
 
 import * as store from './store.js';
 import { Market } from './market.js';
+import { News } from './news.js';
 import * as pay from './payments.js';
 import {
   sign, register, login, publicUser, userFromToken,
@@ -87,6 +88,15 @@ app.post('/api/payments/sync', requireUser, async (req, res) => {
 });
 
 /* ── content ────────────────────────────────────────────────────────────── */
+/* Manual refresh, throttled so a hammered button can't spam the feeds. */
+app.post('/api/news/refresh', (_req, res) => {
+  if (Date.now() - (news.meta.at || 0) < 60_000) {
+    return ok(res, { refreshed: false, reason: 'refreshed less than a minute ago' });
+  }
+  news.refresh();
+  ok(res, { refreshed: true });
+});
+
 app.get('/api/content', (_req, res) => {
   const d = store.data();
   ok(res, { signals: d.signals, news: d.news, chat: d.chat });
@@ -176,6 +186,7 @@ app.use(express.static(path.join(process.cwd(), 'public'), { extensions: ['html'
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/live' });
 const market = new Market();
+const news = new News();
 
 /* Every socket carries the entitlement decided at connect time (and refreshed
    when a payment lands). Alerts are filtered per socket — a free client is
@@ -196,6 +207,7 @@ wss.on('connection', (ws, req) => {
       : null
   }));
   ws.send(JSON.stringify(market.snapshot()));
+  ws.send(JSON.stringify(news.payload()));
 
   ws.on('pong', () => { ws.alive = true; });
   ws.alive = true;
@@ -231,6 +243,9 @@ market.on('flow', (snap) => broadcast(snap));          // free: aggregates only
 market.on('alert', (a) => broadcast({ type: 'alert', alert: a }, true));   // paid only
 market.start();
 
+news.on('update', (p) => broadcast(p));                // headlines: free for everyone
+news.start(5);
+
 /* Drop sockets that stopped answering, and re-check expiry once a minute. */
 const heartbeat = setInterval(() => {
   for (const ws of wss.clients) {
@@ -259,6 +274,7 @@ server.listen(PORT, () => {
 const shutdown = () => {
   clearInterval(heartbeat);
   market.stop();
+  news.stop();
   wss.close();
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 3000);

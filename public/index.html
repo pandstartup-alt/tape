@@ -296,56 +296,8 @@ async function api(path, { method = 'GET', body } = {}) {
   return json;
 }
 
-/* ── news (free tier, pulled client-side) ─────────────────────────────────── */
-const RSS2JSON = 'https://api.rss2json.com/v1/api.json?rss_url=';
-const FEEDS = [
-  { src: 'COINTELEGRAPH', url: 'https://cointelegraph.com/rss' },
-  { src: 'COINDESK', url: 'https://www.coindesk.com/arc/outboundfeeds/rss/' }
-];
-const TOPICS = [
-  { tag: 'BTC', w: 4, rx: /\b(bitcoin|btc|satoshi)\b/i },
-  { tag: 'ETF', w: 3, rx: /\b(etf|etfs|inflow|outflow|blackrock|ibit)\b/i },
-  { tag: 'MACRO', w: 3, rx: /\b(fed|fomc|rate cut|rate hike|inflation|cpi|treasury|dollar|recession)\b/i },
-  { tag: 'MINING', w: 3, rx: /\b(mining|miner|miners|hashrate|halving)\b/i },
-  { tag: 'FLOWS', w: 3, rx: /\b(whale|whales|liquidation|liquidated|short squeeze|all-time high|ath)\b/i },
-  { tag: 'REGULATION', w: 2, rx: /\b(sec|cftc|regulator|regulation|lawsuit|custody|approval|approve|ban)\w*/i },
-  { tag: 'EXCHANGE', w: 2, rx: /\b(binance|coinbase|kraken|bybit|okx|exchange)\b/i },
-  { tag: 'CRYPTO', w: 1, rx: /\b(crypto|blockchain|ethereum|eth|stablecoin|defi|altcoin)\b/i }
-];
-const BULL_RX = /\b(surge\w*|rally|rallies|soar\w*|jump\w*|record|approv\w*|adopt\w*|inflow\w*|accumulat\w*|bullish|gains?|rises?|breakout|greenlight|high|upgrade\w*)\b/gi;
-const BEAR_RX = /\b(crash\w*|plunge\w*|drop\w*|falls?|fell|dump\w*|bans?|banned|reject\w*|hack\w*|exploit\w*|outflow\w*|liquidat\w*|bearish|declin\w*|slump\w*|fraud|probe|froze|seiz\w*|lawsuit|selloff)\b/gi;
-
-const parseWhen = (s) => {
-  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) return Date.parse(s.replace(' ', 'T') + 'Z');
-  const t = Date.parse(s);
-  return isNaN(t) ? Date.now() : t;
-};
-
-async function pullNews() {
-  const out = [];
-  await Promise.all(FEEDS.map(async (f) => {
-    const r = await fetch(RSS2JSON + encodeURIComponent(f.url));
-    const j = await r.json();
-    if (j.status !== 'ok' || !Array.isArray(j.items)) throw new Error(f.src + ' unavailable');
-    for (const it of j.items) {
-      const text = (it.title + ' ' + (it.description || '')).replace(/<[^>]*>/g, ' ');
-      const topics = [];
-      let rel = 0;
-      for (const t of TOPICS) if (t.rx.test(text)) { topics.push(t.tag); rel += t.w; }
-      if (rel < 2) continue;
-      const bull = (text.match(BULL_RX) || []).length;
-      const bear = (text.match(BEAR_RX) || []).length;
-      out.push({
-        id: it.guid || it.link, title: it.title, link: it.link, src: f.src,
-        ts: parseWhen(it.pubDate), topics,
-        lean: bull > bear ? 'BULLISH' : bear > bull ? 'BEARISH' : 'NEUTRAL'
-      });
-    }
-  }));
-  const seen = {};
-  return out.filter((n) => (seen[n.id] ? false : (seen[n.id] = true)))
-            .sort((a, b) => b.ts - a.ts).slice(0, 60);
-}
+/* News arrives over the socket now: the server pulls every feed once and
+   shares one result, instead of every visitor hitting the feeds themselves. */
 
 /* ── TradingView embeds ───────────────────────────────────────────────────── */
 function TVWidget({ src, config, title, variant }) {
@@ -613,7 +565,7 @@ function App() {
   const [notes, setNotes] = useState([]);
   const [chat, setChat] = useState([]);
   const [news, setNews] = useState([]);
-  const [newsMeta, setNewsMeta] = useState({ loading: true, error: null, at: Date.now() });
+  const [newsMeta, setNewsMeta] = useState({ loading: true, at: 0, ok: 0, failed: [] });
   const [fng, setFng] = useState(null);
   const [draft, setDraft] = useState('');
 
@@ -663,6 +615,15 @@ function App() {
           setSignals((s) => s.map((x) => (x.id === m.signal.id ? m.signal : x)));
         } else if (m.type === 'signal-remove') {
           setSignals((s) => s.filter((x) => x.id !== m.id));
+        } else if (m.type === 'news-feed') {
+          setNews(m.items || []);
+          if (m.fng) setFng(m.fng);
+          setNewsMeta({
+            loading: !!(m.meta && m.meta.loading),
+            at: (m.meta && m.meta.at) || Date.now(),
+            ok: m.meta ? m.meta.ok : 0,
+            failed: (m.meta && m.meta.failed) || []
+          });
         } else if (m.type === 'news') {
           setNotes((n) => [m.item].concat(n));
         } else if (m.type === 'news-remove') {
@@ -705,25 +666,12 @@ function App() {
     }
   };
 
-  /* free-tier news */
+  /* the server owns the feeds; REFRESH just asks it to pull sooner */
   const refreshNews = useCallback(() => {
     setNewsMeta((m) => Object.assign({}, m, { loading: true }));
-    pullNews()
-      .then((items) => { setNews(items); setNewsMeta({ loading: false, error: null, at: Date.now() }); })
-      .catch((e) => setNewsMeta({ loading: false, error: e.message, at: Date.now() }));
-  }, []);
-  useEffect(() => {
-    refreshNews();
-    const id = setInterval(refreshNews, 5 * 60 * 1000);
-    return () => clearInterval(id);
-  }, [refreshNews]);
-  useEffect(() => {
-    const pull = () => fetch('https://api.alternative.me/fng/?limit=1').then((r) => r.json())
-      .then((j) => { const d = j && j.data && j.data[0]; if (d) setFng({ value: +d.value, label: d.value_classification }); })
-      .catch(() => {});
-    pull();
-    const id = setInterval(pull, 10 * 60 * 1000);
-    return () => clearInterval(id);
+    api("/news/refresh", { method: "POST" })
+      .catch(() => {})
+      .then(() => setTimeout(() => setNewsMeta((m) => Object.assign({}, m, { loading: false })), 1500));
   }, []);
 
   useEffect(() => { if (chatEnd.current) chatEnd.current.scrollIntoView({ block: 'end' }); }, [chat.length]);
@@ -840,9 +788,15 @@ function App() {
 
       {view === 'news' && (
         <div className="page"><div className="card">
-          <div className="phead"><span>NEWS</span><span className="src">BROADCAST ONLY · NO CHAT</span></div>
+          <div className="phead"><span>NEWS</span><span className="src">BROADCAST ONLY · 10 SOURCES · NO CHAT</span></div>
           <div className="newsbar">
-            <span>{newsMeta.loading ? 'PULLING…' : newsMeta.error ? 'FEED UNREACHABLE' : 'UPDATED ' + ago(newsMeta.at)} · {feed.length} STORIES</span>
+            <span>
+              {newsMeta.loading || !newsMeta.at ? 'PULLING…' : 'UPDATED ' + ago(newsMeta.at)}
+              {' · '}{feed.length} STORIES
+              {newsMeta.ok ? ' · ' + newsMeta.ok + ' SOURCES' : ''}
+              {newsMeta.failed && newsMeta.failed.length
+                ? ' · ' + newsMeta.failed.length + ' DOWN' : ''}
+            </span>
             {fng && <span className="fng">FEAR / GREED <b style={{ color: fng.value >= 60 ? 'var(--buy)' : fng.value <= 40 ? 'var(--sell)' : 'var(--neutral)' }}>{fng.value}</b> {fng.label.toUpperCase()}</span>}
             <button className="btn ghost sm" onClick={refreshNews} disabled={newsMeta.loading}>REFRESH</button>
           </div>

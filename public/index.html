@@ -71,6 +71,15 @@
   .phead .src{color:#3d4354;letter-spacing:.14em}
   .tvhost{position:relative;flex:1 1 auto;min-height:0}
   .chartbox{position:absolute;inset:0;overflow:hidden}
+  .tvmount{position:absolute;inset:0}
+  .tvmount iframe{display:block;width:100%!important;height:100%!important;border:0}
+  .srcpick{display:flex;gap:3px}
+  .srcpick button{
+    font-family:var(--mono);font-size:8px;letter-spacing:.14em;cursor:pointer;padding:4px 7px;
+    background:transparent;border:1px solid var(--line);border-radius:4px;color:#454c5d;transition:.2s;
+  }
+  .srcpick button:hover{color:var(--txt)}
+  .srcpick button.on{color:var(--buy);border-color:rgba(0,229,143,.4);background:rgba(0,229,143,.07)}
 
   /* technicals */
   .techbox{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -409,6 +418,43 @@ function Chart({ candles, interval }) {
   );
 }
 
+/* TradingView embed, kept as an option. It refuses to render from
+   *.up.railway.app — most likely because that is shared free hosting — but
+   works on a proper custom domain, so the toggle stays available. */
+function TVWidget({ src, config }) {
+  const mount = useRef(null);
+  useEffect(() => {
+    const host = mount.current;
+    host.innerHTML = '';
+    const box = document.createElement('div');
+    box.className = 'tradingview-widget-container';
+    box.style.cssText = 'height:100%;width:100%';
+    const slot = document.createElement('div');
+    slot.className = 'tradingview-widget-container__widget';
+    slot.style.cssText = 'height:100%;width:100%';
+    box.appendChild(slot);
+    const s = document.createElement('script');
+    s.type = 'text/javascript';
+    s.async = true;
+    s.src = src;
+    s.innerHTML = JSON.stringify(config);
+    box.appendChild(s);
+    host.appendChild(box);
+    return () => { host.innerHTML = ''; };
+  }, [src]);
+  return <div className="chartbox"><div className="tvmount" ref={mount}></div></div>;
+}
+
+const CHART_CFG = {
+  autosize: true, symbol: 'BINANCE:BTCUSDT', interval: '5', timezone: 'Etc/UTC', theme: 'dark',
+  style: '1', locale: 'en', backgroundColor: 'rgba(12,14,20,1)', gridColor: 'rgba(255,255,255,0.05)',
+  allow_symbol_change: false, save_image: false, support_host: 'https://www.tradingview.com'
+};
+const TECH_CFG = {
+  interval: '15m', width: '100%', height: '100%', isTransparent: true, symbol: 'BINANCE:BTCUSDT',
+  showIntervalTabs: true, displayMode: 'single', locale: 'en', colorTheme: 'dark'
+};
+
 /* Indicators computed on the server from the same candles. */
 function Technicals({ tech }) {
   if (!tech) return <div className="empty-pane">CALCULATING…</div>;
@@ -679,6 +725,13 @@ function App() {
   const [candles, setCandles] = useState([]);
   const [tech, setTech] = useState(null);
   const [chartInterval, setChartInterval] = useState('5m');
+  const [chartSrc, setChartSrc] = useState(() => {
+    try { return localStorage.getItem('tape.chartSrc') || 'binance'; } catch (e) { return 'binance'; }
+  });
+  const pickChart = (v) => {
+    setChartSrc(v);
+    try { localStorage.setItem('tape.chartSrc', v); } catch (e) {}
+  };
   const [news, setNews] = useState([]);
   const [newsMeta, setNewsMeta] = useState({ loading: true, at: 0, ok: 0, failed: [] });
   const [fng, setFng] = useState(null);
@@ -858,12 +911,29 @@ function App() {
       <div className="view" style={{ display: view === 'tape' ? 'flex' : 'none', flexDirection: 'column', flex: '1 1 auto', minHeight: 0 }}>
         <main>
           <div className="panel chart">
-            <div className="phead"><span>PRICE · 5M</span><span className="src">BINANCE</span></div>
-            <div className="tvhost"><Chart candles={candles} interval={chartInterval} /></div>
+            <div className="phead">
+              <span>PRICE · 5M</span>
+              <span className="srcpick">
+                <button className={chartSrc === 'binance' ? 'on' : ''} onClick={() => pickChart('binance')}>BINANCE</button>
+                <button className={chartSrc === 'tradingview' ? 'on' : ''} onClick={() => pickChart('tradingview')}>TRADINGVIEW</button>
+              </span>
+            </div>
+            <div className="tvhost">
+              {chartSrc === 'tradingview'
+                ? <TVWidget src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" config={CHART_CFG} />
+                : <Chart candles={candles} interval={chartInterval} />}
+            </div>
           </div>
           <div className="panel tech">
-            <div className="phead"><span>TECHNICALS</span><span className="src">RSI · MA20 · MA50</span></div>
-            <div className="tvhost"><Technicals tech={tech} /></div>
+            <div className="phead">
+              <span>TECHNICALS</span>
+              <span className="src">{chartSrc === 'tradingview' ? 'TRADINGVIEW' : 'RSI · MA20 · MA50'}</span>
+            </div>
+            <div className="tvhost">
+              {chartSrc === 'tradingview'
+                ? <TVWidget src="https://s3.tradingview.com/external-embedding/embed-widget-technical-analysis.js" config={TECH_CFG} />
+                : <Technicals tech={tech} />}
+            </div>
           </div>
         </main>
 

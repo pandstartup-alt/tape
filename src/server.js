@@ -7,6 +7,7 @@ import { WebSocketServer } from 'ws';
 import * as store from './store.js';
 import { Market } from './market.js';
 import { News } from './news.js';
+import { Klines } from './klines.js';
 import * as pay from './payments.js';
 import {
   sign, register, login, publicUser, userFromToken,
@@ -187,6 +188,7 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/live' });
 const market = new Market();
 const news = new News();
+const klines = new Klines();
 
 /* Every socket carries the entitlement decided at connect time (and refreshed
    when a payment lands). Alerts are filtered per socket — a free client is
@@ -208,6 +210,7 @@ wss.on('connection', (ws, req) => {
   }));
   ws.send(JSON.stringify(market.snapshot()));
   ws.send(JSON.stringify(news.payload()));
+  ws.send(JSON.stringify(klines.payload()));
 
   ws.on('pong', () => { ws.alive = true; });
   ws.alive = true;
@@ -246,6 +249,19 @@ market.start();
 news.on('update', (p) => broadcast(p));                // headlines: free for everyone
 news.start(5);
 
+// candles are free too — only the size alerts are paid
+klines.on('update', (p) => broadcast(p));
+klines.start(60);
+
+// keep the forming candle moving between REST pulls, and push it twice a second
+market.on('flow', (snap) => { if (snap.price) klines.applyTrade(snap.price); });
+setInterval(() => {
+  if (klines.candles.length) {
+    const last = klines.candles[klines.candles.length - 1];
+    broadcast({ type: 'candle-tick', candle: last });
+  }
+}, 2000);
+
 /* Drop sockets that stopped answering, and re-check expiry once a minute. */
 const heartbeat = setInterval(() => {
   for (const ws of wss.clients) {
@@ -275,6 +291,7 @@ const shutdown = () => {
   clearInterval(heartbeat);
   market.stop();
   news.stop();
+  klines.stop();
   wss.close();
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 3000);

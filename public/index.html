@@ -70,8 +70,24 @@
     font-size:10px;letter-spacing:.22em;color:var(--dim);flex:0 0 auto}
   .phead .src{color:#3d4354;letter-spacing:.14em}
   .tvhost{position:relative;flex:1 1 auto;min-height:0}
-  .tvmount{position:absolute;inset:0}
-  .tvmount iframe{display:block;width:100%!important;height:100%!important}
+  .chartbox{position:absolute;inset:0;overflow:hidden}
+
+  /* technicals */
+  .techbox{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:14px;padding:18px;text-align:center}
+  .techsum{font-size:clamp(24px,3.4vw,38px);font-weight:800;letter-spacing:.12em}
+  .techsum.bullish{color:var(--buy);text-shadow:0 0 34px rgba(0,229,143,.35)}
+  .techsum.bearish{color:var(--sell);text-shadow:0 0 34px rgba(255,59,92,.35)}
+  .techsum.neutral{color:var(--neutral)}
+  .techvotes{display:flex;gap:14px;font-size:9px;letter-spacing:.16em}
+  .techvotes .bull{color:var(--buy)} .techvotes .bear{color:var(--sell)} .techvotes .neu{color:var(--dim)}
+  .techrows{width:100%;max-width:280px;display:flex;flex-direction:column;gap:1px;margin-top:4px}
+  .techrow{display:flex;align-items:center;gap:10px;padding:9px 11px;background:#0a0c11;border:1px solid var(--line);border-radius:6px}
+  .techrow .k{font-size:9px;letter-spacing:.18em;color:#4a5162}
+  .techrow .v{margin-left:auto;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
+  .techrow .s{font-size:8px;letter-spacing:.12em;color:var(--dim);min-width:74px;text-align:right}
+  .techrow .s.bull{color:var(--buy)} .techrow .s.bear{color:var(--sell)}
+  .technote{font-size:8px;letter-spacing:.18em;color:#3d4354}
 
   .strip{flex:0 0 auto;display:flex;align-items:center;gap:24px;margin-top:14px}
   .regime{flex:0 0 auto;min-width:240px}
@@ -299,38 +315,134 @@ async function api(path, { method = 'GET', body } = {}) {
 /* News arrives over the socket now: the server pulls every feed once and
    shares one result, instead of every visitor hitting the feeds themselves. */
 
-/* ── TradingView embeds ───────────────────────────────────────────────────── */
-function TVWidget({ src, config, title, variant }) {
-  const mount = useRef(null);
+/* ── candlestick chart ─────────────────────────────────────────────────────
+   Drawn here from Binance candles the server supplies. TradingView's embed
+   refuses to render from this domain, so we own the whole thing instead. */
+function Chart({ candles, interval }) {
+  const box = useRef(null);
+  const [size, setSize] = useState({ w: 800, h: 360 });
+
   useEffect(() => {
-    const host = mount.current;
-    host.innerHTML = '';
-    const box = document.createElement('div');
-    box.style.cssText = 'height:100%;width:100%';
-    const slot = document.createElement('div');
-    slot.style.cssText = 'height:100%;width:100%';
-    box.appendChild(slot);
-    const s = document.createElement('script');
-    s.type = 'text/javascript';
-    s.async = true;
-    s.src = src;
-    s.innerHTML = JSON.stringify(config);
-    box.appendChild(s);
-    host.appendChild(box);
-    return () => { host.innerHTML = ''; };
-  }, [src]);
+    if (!box.current) return;
+    const ro = new ResizeObserver(([e]) => {
+      const r = e.contentRect;
+      if (r.width > 0 && r.height > 0) setSize({ w: Math.round(r.width), h: Math.round(r.height) });
+    });
+    ro.observe(box.current);
+    return () => ro.disconnect();
+  }, []);
+
+  if (!candles || candles.length < 2) {
+    return <div className="chartbox" ref={box}><div className="empty-pane">LOADING CANDLES…</div></div>;
+  }
+
+  const PAD = { l: 8, r: 62, t: 10, b: 20 };
+  const { w, h } = size;
+  const plotW = Math.max(10, w - PAD.l - PAD.r);
+  const volH = Math.round((h - PAD.t - PAD.b) * 0.18);
+  const plotH = Math.max(10, h - PAD.t - PAD.b - volH - 6);
+
+  let hi = -Infinity, lo = Infinity, maxV = 0;
+  for (const c of candles) {
+    if (c.h > hi) hi = c.h;
+    if (c.l < lo) lo = c.l;
+    if (c.v > maxV) maxV = c.v;
+  }
+  const span = hi - lo || 1;
+  hi += span * 0.04;
+  lo -= span * 0.04;
+  const range = hi - lo || 1;
+
+  const step = plotW / candles.length;
+  const bw = Math.max(1, Math.min(9, step * 0.68));
+  const y = (p) => PAD.t + (1 - (p - lo) / range) * plotH;
+  const x = (i) => PAD.l + i * step + step / 2;
+
+  // five price gridlines, rounded to something readable
+  const ticks = [];
+  for (let i = 0; i <= 4; i++) ticks.push(lo + (range * i) / 4);
+
+  const last = candles[candles.length - 1];
+  const up = last.c >= last.o;
+
   return (
-    <div className={'panel ' + variant}>
-      <div className="phead"><span>{title}</span><span className="src">TRADINGVIEW</span></div>
-      <div className="tvhost"><div className="tvmount" ref={mount}></div></div>
+    <div className="chartbox" ref={box}>
+      <svg width={w} height={h} style={{ display: 'block' }}>
+        {ticks.map((p, i) => (
+          <g key={i}>
+            <line x1={PAD.l} x2={PAD.l + plotW} y1={y(p)} y2={y(p)} stroke="rgba(255,255,255,.05)" />
+            <text x={PAD.l + plotW + 6} y={y(p) + 3.5} fill="#5a6274" fontSize="10">
+              {p.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+            </text>
+          </g>
+        ))}
+
+        {candles.map((c, i) => {
+          const g = c.c >= c.o;
+          const col = g ? 'var(--buy)' : 'var(--sell)';
+          const vy = PAD.t + plotH + 6;
+          const vh = maxV ? (c.v / maxV) * volH : 0;
+          return (
+            <g key={c.t}>
+              <rect x={x(i) - bw / 2} y={vy + (volH - vh)} width={bw} height={Math.max(0.5, vh)}
+                    fill={col} opacity=".28" />
+              <line x1={x(i)} x2={x(i)} y1={y(c.h)} y2={y(c.l)} stroke={col} strokeWidth="1" />
+              <rect x={x(i) - bw / 2} y={Math.min(y(c.o), y(c.c))} width={bw}
+                    height={Math.max(1, Math.abs(y(c.c) - y(c.o)))} fill={col} />
+            </g>
+          );
+        })}
+
+        <line x1={PAD.l} x2={PAD.l + plotW} y1={y(last.c)} y2={y(last.c)}
+              stroke={up ? 'var(--buy)' : 'var(--sell)'} strokeWidth="1" strokeDasharray="3 3" opacity=".7" />
+        <rect x={PAD.l + plotW + 2} y={y(last.c) - 9} width={PAD.r - 6} height="18" rx="3"
+              fill={up ? 'var(--buy)' : 'var(--sell)'} />
+        <text x={PAD.l + plotW + 6} y={y(last.c) + 4} fill="#04140d" fontSize="10.5" fontWeight="700">
+          {last.c.toLocaleString('en-US', { maximumFractionDigits: 2 })}
+        </text>
+
+        <text x={PAD.l + 2} y={h - 6} fill="#454c5d" fontSize="9">
+          {candles.length} × {interval || '5m'} · BINANCE BTCUSDT
+        </text>
+      </svg>
     </div>
   );
 }
-const CHART_CFG = { autosize: true, symbol: 'BINANCE:BTCUSDT', interval: '5', timezone: 'Etc/UTC', theme: 'dark',
-  style: '1', locale: 'en', backgroundColor: 'rgba(12,14,20,1)', gridColor: 'rgba(255,255,255,0.05)',
-  allow_symbol_change: false, save_image: false, withdateranges: true, support_host: 'https://www.tradingview.com' };
-const TECH_CFG = { interval: '15m', width: '100%', height: '100%', isTransparent: true, symbol: 'BINANCE:BTCUSDT',
-  showIntervalTabs: true, displayMode: 'single', locale: 'en', colorTheme: 'dark' };
+
+/* Indicators computed on the server from the same candles. */
+function Technicals({ tech }) {
+  if (!tech) return <div className="empty-pane">CALCULATING…</div>;
+  const cls = tech.summary.includes('BUY') ? 'bullish' : tech.summary.includes('SELL') ? 'bearish' : 'neutral';
+  const rows = [
+    ['RSI 14', tech.rsi === null ? '—' : tech.rsi.toFixed(1),
+      tech.rsi === null ? '' : tech.rsi > 70 ? 'OVERBOUGHT' : tech.rsi < 30 ? 'OVERSOLD' : tech.rsi > 55 ? 'BULLISH' : tech.rsi < 45 ? 'BEARISH' : 'NEUTRAL'],
+    ['MA 20', tech.ma20 === null ? '—' : tech.ma20.toLocaleString('en-US', { maximumFractionDigits: 0 }),
+      tech.ma20 === null ? '' : tech.price > tech.ma20 ? 'ABOVE' : 'BELOW'],
+    ['MA 50', tech.ma50 === null ? '—' : tech.ma50.toLocaleString('en-US', { maximumFractionDigits: 0 }),
+      tech.ma50 === null ? '' : tech.price > tech.ma50 ? 'ABOVE' : 'BELOW']
+  ];
+  return (
+    <div className="techbox">
+      <div className={'techsum ' + cls}>{tech.summary}</div>
+      <div className="techvotes">
+        <span className="bear">{tech.sell} SELL</span>
+        <span className="neu">{tech.neutral} NEUTRAL</span>
+        <span className="bull">{tech.buy} BUY</span>
+      </div>
+      <div className="techrows">
+        {rows.map((r) => (
+          <div className="techrow" key={r[0]}>
+            <span className="k">{r[0]}</span>
+            <span className="v">{r[1]}</span>
+            <span className={'s ' + (r[2] === 'ABOVE' || r[2] === 'BULLISH' ? 'bull'
+              : r[2] === 'BELOW' || r[2] === 'BEARISH' || r[2] === 'OVERBOUGHT' ? 'bear' : '')}>{r[2]}</span>
+          </div>
+        ))}
+      </div>
+      <div className="technote">FROM 5-MINUTE BINANCE CANDLES · NOT ADVICE</div>
+    </div>
+  );
+}
 
 /* ── alert sound ──────────────────────────────────────────────────────────── */
 function createAudio() {
@@ -564,6 +676,9 @@ function App() {
   const [signals, setSignals] = useState([]);
   const [notes, setNotes] = useState([]);
   const [chat, setChat] = useState([]);
+  const [candles, setCandles] = useState([]);
+  const [tech, setTech] = useState(null);
+  const [chartInterval, setChartInterval] = useState('5m');
   const [news, setNews] = useState([]);
   const [newsMeta, setNewsMeta] = useState({ loading: true, at: 0, ok: 0, failed: [] });
   const [fng, setFng] = useState(null);
@@ -615,6 +730,19 @@ function App() {
           setSignals((s) => s.map((x) => (x.id === m.signal.id ? m.signal : x)));
         } else if (m.type === 'signal-remove') {
           setSignals((s) => s.filter((x) => x.id !== m.id));
+        } else if (m.type === 'chart') {
+          setCandles(m.candles || []);
+          setTech(m.tech || null);
+          if (m.interval) setChartInterval(m.interval);
+        } else if (m.type === 'candle-tick') {
+          // only the forming candle moves between full refreshes
+          setCandles((cs) => {
+            if (!cs.length || !m.candle) return cs;
+            if (cs[cs.length - 1].t !== m.candle.t) return cs;
+            const next = cs.slice();
+            next[next.length - 1] = m.candle;
+            return next;
+          });
         } else if (m.type === 'news-feed') {
           setNews(m.items || []);
           if (m.fng) setFng(m.fng);
@@ -729,10 +857,14 @@ function App() {
 
       <div className="view" style={{ display: view === 'tape' ? 'flex' : 'none', flexDirection: 'column', flex: '1 1 auto', minHeight: 0 }}>
         <main>
-          <TVWidget variant="chart" title="PRICE · 5M"
-            src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" config={CHART_CFG} />
-          <TVWidget variant="tech" title="TECHNICALS"
-            src="https://s3.tradingview.com/external-embedding/embed-widget-technical-analysis.js" config={TECH_CFG} />
+          <div className="panel chart">
+            <div className="phead"><span>PRICE · 5M</span><span className="src">BINANCE</span></div>
+            <div className="tvhost"><Chart candles={candles} interval={chartInterval} /></div>
+          </div>
+          <div className="panel tech">
+            <div className="phead"><span>TECHNICALS</span><span className="src">RSI · MA20 · MA50</span></div>
+            <div className="tvhost"><Technicals tech={tech} /></div>
+          </div>
         </main>
 
         <div className="prints">

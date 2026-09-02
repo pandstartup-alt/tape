@@ -1,0 +1,10 @@
+node_modules/
+
+# secrets — never commit these
+.env
+
+# members, orders and paid-until dates live here
+data/
+
+npm-debug.log*
+.DS_Store

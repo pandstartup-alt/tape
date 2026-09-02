@@ -1,0 +1,1700 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TAPE — Live Bitcoin Order Flow</title>
+
+<meta name="description" content="Live Bitcoin order flow from Binance: rolling one-minute buy vs sell pressure, whale and humpback trade alerts, a TradingView chart with technicals, and an auto-pulled BTC news channel." />
+<meta name="theme-color" content="#06070a" />
+<meta name="color-scheme" content="dark" />
+<link rel="canonical" href="./" />
+
+<!-- link previews (Twitter/X, Discord, Telegram, iMessage) -->
+<meta property="og:type" content="website" />
+<meta property="og:title" content="TAPE — Live Bitcoin Order Flow" />
+<meta property="og:description" content="Rolling 1-minute buy vs sell pressure, whale alerts, TradingView technicals and a live BTC news channel." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="TAPE — Live Bitcoin Order Flow" />
+<meta name="twitter:description" content="Rolling 1-minute buy vs sell pressure, whale alerts, TradingView technicals and a live BTC news channel." />
+
+<!-- self-contained favicon, no extra files to upload -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2306070a'/%3E%3Crect x='8' y='28' width='30' height='8' rx='4' fill='%2300e58f'/%3E%3Crect x='38' y='28' width='18' height='8' rx='4' fill='%23ff3b5c'/%3E%3C/svg%3E" />
+<style>
+  :root{
+    --bg:#06070a;
+    --panel:#0c0e14;
+    --line:#1b1f2b;
+    --txt:#e9edf5;
+    --dim:#6a7488;
+    --buy:#00e58f;
+    --sell:#ff3b5c;
+    --neutral:#ffb020;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Mono","Roboto Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--bg);
+    color:var(--txt);
+    font-family:var(--mono);
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+    background:
+      radial-gradient(900px 500px at 50% -10%, rgba(0,229,143,.06), transparent 70%),
+      radial-gradient(700px 400px at 50% 110%, rgba(255,59,92,.05), transparent 70%),
+      repeating-linear-gradient(to bottom, rgba(255,255,255,.014) 0 1px, transparent 1px 3px);
+  }
+
+  #root{height:100%}
+  .app{position:relative;z-index:1;height:100%;display:flex;flex-direction:column;padding:22px 26px 18px}
+  /* whale: a restrained nudge */
+  .app.quake{animation:quake .4s cubic-bezier(.36,.07,.19,.97)}
+  @keyframes quake{
+    22%{transform:translate(-3px,2px)}
+    48%{transform:translate(4px,-2px)}
+    72%{transform:translate(-2px,1px)}
+    100%{transform:none}
+  }
+  /* humpback: the whole room moves */
+  .app.quake.big{animation:quakebig 1.1s cubic-bezier(.36,.07,.19,.97)}
+  @keyframes quakebig{
+    5%{transform:translate(-16px,8px) rotate(-.6deg)}
+    12%{transform:translate(17px,-10px) rotate(.6deg)}
+    20%{transform:translate(-15px,7px) rotate(-.5deg)}
+    29%{transform:translate(13px,9px) rotate(.45deg)}
+    39%{transform:translate(-11px,-7px) rotate(-.35deg)}
+    50%{transform:translate(9px,5px) rotate(.3deg)}
+    61%{transform:translate(-7px,4px) rotate(-.2deg)}
+    72%{transform:translate(5px,-3px)}
+    83%{transform:translate(-3px,2px)}
+    93%{transform:translate(2px,-1px)}
+    100%{transform:none}
+  }
+
+  /* header */
+  header{display:flex;align-items:center;justify-content:space-between;gap:14px;flex:0 0 auto;flex-wrap:wrap}
+  .brand{display:flex;align-items:baseline;gap:14px}
+  .wordmark{
+    font-size:30px;font-weight:800;letter-spacing:.42em;
+    background:linear-gradient(180deg,#fff,#8892a6);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .pair{
+    font-size:11px;letter-spacing:.22em;color:var(--dim);
+    border:1px solid var(--line);border-radius:5px;padding:4px 9px;white-space:nowrap;
+  }
+  .hud{display:flex;align-items:center;gap:22px}
+  .px{display:flex;align-items:baseline;gap:8px}
+  .px .v{font-size:24px;font-weight:700;letter-spacing:.02em;transition:color .35s;font-variant-numeric:tabular-nums}
+  .px .v.up{color:var(--buy)}
+  .px .v.dn{color:var(--sell)}
+  .px .k{font-size:10px;letter-spacing:.2em;color:var(--dim)}
+  .status{display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.18em;color:var(--dim)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--dim)}
+  .dot.live{background:var(--buy);box-shadow:0 0 0 0 rgba(0,229,143,.55);animation:ping 1.8s infinite}
+  .dot.down{background:var(--sell)}
+  .dot.wait{background:var(--neutral);animation:blink 1s steps(2) infinite}
+  @keyframes ping{70%{box-shadow:0 0 0 9px rgba(0,229,143,0)}100%{box-shadow:0 0 0 0 rgba(0,229,143,0)}}
+  @keyframes blink{50%{opacity:.25}}
+  .snd{
+    font-family:var(--mono);font-size:11px;letter-spacing:.16em;cursor:pointer;
+    background:transparent;color:var(--dim);border:1px solid var(--line);
+    border-radius:5px;padding:7px 11px;transition:.2s;white-space:nowrap;
+  }
+  .snd:hover{color:var(--txt);border-color:#2c3242}
+  .snd.on{color:var(--buy);border-color:rgba(0,229,143,.4);background:rgba(0,229,143,.06)}
+  .snd.off{animation:hint 2.6s ease-in-out infinite}
+  .snd.muted{color:#4a5162;border-color:var(--line)}
+  .snd.muted:hover{color:var(--txt)}
+  .snd.dead{color:#39404f;border-style:dashed;cursor:not-allowed}
+  .snd.dead:hover{color:#39404f;border-color:var(--line)}
+  @keyframes hint{0%,100%{opacity:.55}50%{opacity:1}}
+
+  /* page tabs */
+  .tabs{display:flex;gap:4px;margin-left:20px}
+  .tab{
+    position:relative;font-family:var(--mono);font-size:10px;letter-spacing:.24em;cursor:pointer;
+    background:transparent;border:1px solid transparent;border-radius:5px;padding:7px 13px;
+    color:#5a6274;transition:.2s;white-space:nowrap;
+  }
+  .tab:hover{color:var(--txt)}
+  .tab.on{color:var(--txt);border-color:var(--line);background:var(--panel)}
+  .badge{
+    position:absolute;top:-5px;right:-6px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;
+    background:var(--buy);color:#04140d;font-size:9px;font-weight:700;letter-spacing:0;
+    display:flex;align-items:center;justify-content:center;
+  }
+
+  .view{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
+  .view.off{display:none}
+
+  /* chat + signals share this shell */
+  .page{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;margin-top:16px}
+  .page .card{
+    flex:1 1 auto;display:flex;flex-direction:column;min-height:0;overflow:hidden;
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  }
+  .empty-pane{
+    flex:1 1 auto;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;
+    color:#3d4354;font-size:10px;letter-spacing:.24em;
+  }
+  .inp{
+    flex:1 1 auto;min-width:0;background:#0a0c11;border:1px solid var(--line);border-radius:6px;
+    padding:10px 12px;color:var(--txt);font-family:var(--mono);font-size:12px;outline:none;
+  }
+  .inp:focus{border-color:#2c3242}
+  .inp::placeholder{color:#3d4354}
+  .btn{
+    flex:0 0 auto;cursor:pointer;border-radius:6px;padding:10px 16px;
+    background:rgba(0,229,143,.1);border:1px solid rgba(0,229,143,.4);color:var(--buy);
+    font-family:var(--mono);font-size:10px;letter-spacing:.2em;transition:.2s;white-space:nowrap;
+  }
+  .btn:hover{background:rgba(0,229,143,.2)}
+  .btn.ghost{background:transparent;border-color:var(--line);color:var(--dim)}
+  .btn.ghost:hover{color:var(--txt);border-color:#2c3242}
+
+  /* chat */
+  .msgs{flex:1 1 auto;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:11px}
+  .msg{display:flex;gap:10px;align-items:baseline;font-size:12px;line-height:1.5}
+  .msg .who{flex:0 0 auto;color:var(--buy);font-weight:700;letter-spacing:.08em}
+  .msg.mine .who{color:var(--neutral)}
+  .msg .txt{color:var(--txt);word-break:break-word}
+  .msg .at{margin-left:auto;flex:0 0 auto;color:#3d4354;font-size:9px;letter-spacing:.1em}
+  .composer{flex:0 0 auto;display:flex;gap:9px;padding:12px;border-top:1px solid var(--line)}
+
+  /* news */
+  .newsbar{
+    flex:0 0 auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+    padding:10px 14px;border-bottom:1px solid var(--line);
+    font-size:9px;letter-spacing:.2em;color:#4a5162;
+  }
+  .newsbar .fng{margin-left:auto;letter-spacing:.18em}
+  .newsbar .fng b{font-size:12px;font-weight:800;margin:0 3px}
+  .newsbar .btn{padding:6px 11px;font-size:9px}
+  .newsbar .btn:disabled{opacity:.4;cursor:default}
+
+  .newsfeed{flex:1 1 auto;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:9px}
+  .news{position:relative;background:#0a0c11;border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+  .news.fromadmin{border-color:rgba(255,176,32,.35);background:rgba(255,176,32,.04)}
+  .nhead{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:8px}
+  .nsrc{font-size:9px;letter-spacing:.2em;color:var(--dim)}
+  .lean{font-size:8px;letter-spacing:.16em;padding:2px 6px;border-radius:3px;border:1px solid}
+  .lean.bullish{color:var(--buy);border-color:rgba(0,229,143,.35)}
+  .lean.bearish{color:var(--sell);border-color:rgba(255,59,92,.35)}
+  .lean.neutral{color:var(--neutral);border-color:rgba(255,176,32,.3)}
+  .topic{font-size:8px;letter-spacing:.14em;color:#4a5162;border:1px solid var(--line);border-radius:3px;padding:2px 6px}
+  .nwhen{margin-left:auto;font-size:9px;letter-spacing:.12em;color:#3d4354}
+  .ntitle{
+    display:block;font-size:13px;line-height:1.5;color:var(--txt);text-decoration:none;
+    padding-right:70px;
+  }
+  a.ntitle:hover{color:var(--buy);text-decoration:underline}
+  .ntitle.plain{color:var(--neutral)}
+  .news .nkill{position:absolute;right:12px;bottom:12px;padding:4px 8px;font-size:8px;letter-spacing:.12em}
+
+  /* signals */
+  .sigs{flex:1 1 auto;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+  .sig{background:#0a0c11;border:1px solid var(--line);border-radius:9px;padding:14px 16px}
+  .sig.long{border-left:3px solid var(--buy)}
+  .sig.short{border-left:3px solid var(--sell)}
+  .sig .top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .sig .side{font-size:15px;font-weight:800;letter-spacing:.14em}
+  .sig.long .side{color:var(--buy)}
+  .sig.short .side{color:var(--sell)}
+  .sig .pair{font-size:10px;letter-spacing:.18em;color:var(--dim);border:1px solid var(--line);border-radius:4px;padding:3px 7px}
+  .sig .st{margin-left:auto;font-size:9px;letter-spacing:.2em;color:var(--dim);border:1px solid var(--line);border-radius:4px;padding:3px 8px}
+  .sig .st.hit{color:var(--buy);border-color:rgba(0,229,143,.4)}
+  .sig .st.stopped{color:var(--sell);border-color:rgba(255,59,92,.4)}
+  .levels{display:flex;gap:24px;margin-top:12px;flex-wrap:wrap}
+  .lvl{display:flex;flex-direction:column;gap:3px}
+  .lvl .k{font-size:9px;letter-spacing:.2em;color:#4a5162}
+  .lvl .v{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
+  .sig .note{margin-top:11px;font-size:11px;color:var(--dim);line-height:1.6;word-break:break-word}
+  .sig .when{margin-top:9px;font-size:9px;letter-spacing:.16em;color:#3d4354}
+  .sig .acts{display:flex;gap:6px;margin-top:12px;flex-wrap:wrap}
+  .sig .acts .btn{padding:5px 9px;font-size:9px;letter-spacing:.14em}
+  .sig .acts .btn.del{margin-left:auto}
+  .btn.del{border-color:rgba(255,59,92,.28);color:rgba(255,59,92,.7)}
+  .btn.del:hover{color:var(--sell);border-color:rgba(255,59,92,.6)}
+  .btn.del.armed{background:rgba(255,59,92,.16);border-color:var(--sell);color:var(--sell)}
+
+  .admin{flex:0 0 auto;padding:14px;border-top:1px solid var(--line)}
+  .admin .row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+  .admin .row + .row{margin-top:9px}
+  .admin .row .inp{flex:1 1 130px}
+  .seg{flex:0 0 auto;display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+  .seg button{
+    background:transparent;border:0;cursor:pointer;color:#5a6274;
+    font-family:var(--mono);font-size:10px;letter-spacing:.18em;padding:10px 16px;
+  }
+  .seg button.on.long{background:rgba(0,229,143,.14);color:var(--buy)}
+  .seg button.on.short{background:rgba(255,59,92,.14);color:var(--sell)}
+  .lock{flex:0 0 auto;display:flex;gap:9px;align-items:center;padding:14px;border-top:1px solid var(--line);flex-wrap:wrap}
+  .lock .hint{font-size:9px;letter-spacing:.18em;color:#3d4354}
+
+  /* chart + technicals */
+  main{flex:1 1 auto;display:grid;grid-template-columns:1fr 340px;gap:14px;min-height:0;margin-top:16px}
+  .panel{
+    background:var(--panel);border:1px solid var(--line);border-radius:10px;
+    overflow:hidden;display:flex;flex-direction:column;min-height:0;
+  }
+  .phead{
+    display:flex;justify-content:space-between;align-items:center;gap:10px;
+    padding:9px 12px;border-bottom:1px solid var(--line);
+    font-size:10px;letter-spacing:.24em;color:var(--dim);flex:0 0 auto;
+  }
+  .phead .src{color:#3d4354;letter-spacing:.16em}
+  .tvhost{position:relative;flex:1 1 auto;min-height:0}
+  .tvmount{position:absolute;inset:0}
+  .tvmount iframe{display:block;width:100%!important;height:100%!important}
+  .tvfail{
+    position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:8px;text-align:center;padding:20px;font-size:11px;letter-spacing:.16em;color:#4a5162;
+  }
+  .tvfail b{color:var(--neutral);font-weight:600;letter-spacing:.2em}
+
+  /* size-tier print ticker */
+  .prints{flex:0 0 auto;display:flex;align-items:center;height:32px;margin-top:14px}
+  .stream{
+    flex:1 1 auto;display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden;
+    /* soften the clip where older prints run off the edge */
+    -webkit-mask-image:linear-gradient(90deg,#000 84%,transparent 100%);
+    mask-image:linear-gradient(90deg,#000 84%,transparent 100%);
+  }
+  .stream .empty{font-size:9px;letter-spacing:.22em;color:#3d4354;white-space:nowrap}
+
+  /* icon legend — what each creature means */
+  .legend{
+    flex:0 0 auto;display:flex;align-items:center;gap:12px;
+    margin-left:16px;padding-left:16px;border-left:1px solid var(--line);
+  }
+  .legend .lbl{font-size:9px;letter-spacing:.26em;color:#3d4354}
+  .legend .chip{
+    display:inline-flex;align-items:center;gap:5px;cursor:help;
+    font-size:9px;letter-spacing:.12em;color:#5a6274;white-space:nowrap;
+    font-variant-numeric:tabular-nums;transition:color .2s;
+  }
+  .legend .chip b{font-size:13px;font-weight:400;line-height:1}
+  .legend .chip:hover{color:var(--txt)}
+  /* below the alert floor — shown for reference, never fires */
+  .legend .chip.quiet{opacity:.42}
+  .legend .chip.quiet b{filter:grayscale(.7)}
+  .pill{
+    display:inline-flex;align-items:center;gap:8px;flex:0 0 auto;
+    padding:5px 11px;border-radius:6px;white-space:nowrap;
+    font-size:10px;letter-spacing:.14em;
+    background:var(--panel);border:1px solid var(--line);
+    animation:slidein .4s cubic-bezier(.2,1,.3,1);
+    transition:opacity .4s;
+  }
+  @keyframes slidein{from{opacity:0;transform:translateX(-16px) scale(.94)}to{opacity:1;transform:none}}
+  .pill .g{font-size:12px;line-height:1}
+  .pill .t{color:var(--dim);letter-spacing:.2em}
+  .pill .v{font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.06em}
+  .pill.b{border-color:rgba(0,229,143,.3)}
+  .pill.b .v{color:var(--buy)}
+  .pill.s{border-color:rgba(255,59,92,.3)}
+  .pill.s .v{color:var(--sell)}
+  /* tier classes are namespaced t-* so they can't collide with the .whale overlay */
+  .pill.t-whale,.pill.t-humpback{box-shadow:0 0 22px rgba(255,255,255,.05)}
+  .pill.t-whale .t,.pill.t-humpback .t{color:var(--txt)}
+  .pill.t-humpback .g{font-size:14px}
+
+  /* order-flow strip */
+  .strip{flex:0 0 auto;display:flex;align-items:center;gap:28px;margin-top:16px}
+  .regime{flex:0 0 auto;min-width:260px}
+  .verdict{
+    font-size:clamp(30px,3.7vw,54px);font-weight:800;letter-spacing:.05em;line-height:1;
+    transition:color .5s,text-shadow .5s;animation:pop .45s cubic-bezier(.2,1.5,.4,1);
+  }
+  @keyframes pop{from{transform:scale(.9);opacity:.3;filter:blur(6px)}to{transform:none;opacity:1;filter:none}}
+  .regime .sub{margin-top:9px;font-size:9px;letter-spacing:.2em;color:var(--dim);max-width:280px;line-height:1.6}
+  .bull{color:var(--buy);text-shadow:0 0 46px rgba(0,229,143,.45)}
+  .bear{color:var(--sell);text-shadow:0 0 46px rgba(255,59,92,.45)}
+  .neut{color:var(--neutral);text-shadow:0 0 40px rgba(255,176,32,.3)}
+  .idle{color:#4a5162;text-shadow:none}
+
+  /* flow bar */
+  .flow{flex:1 1 auto;min-width:0}
+  .pcts{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:10px;gap:12px}
+  .pct{display:flex;flex-direction:column;gap:4px}
+  .pct.s{align-items:flex-end}
+  .pct .lab{font-size:9px;letter-spacing:.24em;color:var(--dim)}
+  .pct .num{font-size:34px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+  .pct .num small{font-size:16px;font-weight:600;opacity:.55;margin-left:2px}
+  .pct.b .num{color:var(--buy)}
+  .pct.s .num{color:var(--sell)}
+  .pct .usd{font-size:12px;color:var(--dim);font-variant-numeric:tabular-nums}
+
+  .track{
+    position:relative;height:44px;border-radius:8px;overflow:hidden;
+    background:var(--panel);border:1px solid var(--line);display:flex;
+  }
+  .seg{height:100%;transition:width .42s cubic-bezier(.22,1,.36,1)}
+  .seg.b{background:linear-gradient(90deg,rgba(0,229,143,.55),var(--buy));box-shadow:0 0 34px rgba(0,229,143,.32) inset}
+  .seg.s{background:linear-gradient(90deg,var(--sell),rgba(255,59,92,.55));box-shadow:0 0 34px rgba(255,59,92,.32) inset}
+  .track::after{
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background:repeating-linear-gradient(90deg,rgba(0,0,0,.16) 0 1px,transparent 1px 6px);
+  }
+  .mark{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.22);z-index:2}
+  .mark span{position:absolute;bottom:4px;transform:translateX(-50%);font-size:9px;letter-spacing:.14em;color:#8b93a5}
+  .scale{display:flex;justify-content:space-between;margin-top:9px;font-size:10px;letter-spacing:.2em;color:#454c5d;gap:12px}
+
+  /* footer */
+  footer{
+    flex:0 0 auto;display:flex;justify-content:space-between;align-items:center;gap:14px;
+    padding-top:16px;margin-top:14px;border-top:1px solid var(--line);
+    font-size:10px;letter-spacing:.2em;color:#454c5d;
+  }
+  footer b{color:var(--dim);font-weight:600}
+  footer .tally{margin-right:9px;cursor:help;white-space:nowrap}
+  footer .tally:hover{color:var(--dim)}
+
+  /* dolphin + shark: a soft pulse at the edges of the screen, nothing more */
+  .edge{position:fixed;inset:0;z-index:30;pointer-events:none;animation:edgepulse .75s ease-out forwards}
+  .edge.b{box-shadow:inset 0 0 70px rgba(0,229,143,.3)}
+  .edge.s{box-shadow:inset 0 0 70px rgba(255,59,92,.3)}
+  .edge.shark.b{box-shadow:inset 0 0 130px rgba(0,229,143,.45)}
+  .edge.shark.s{box-shadow:inset 0 0 130px rgba(255,59,92,.45)}
+  @keyframes edgepulse{0%{opacity:0}14%{opacity:1}100%{opacity:0}}
+
+  /* whale: a brief, contained flash */
+  .flash{position:fixed;inset:0;z-index:40;pointer-events:none;animation:flash .6s ease-out forwards}
+  .flash.b{background:radial-gradient(circle at 50% 50%, rgba(0,229,143,.3), rgba(0,229,143,.07) 45%, transparent 72%)}
+  .flash.s{background:radial-gradient(circle at 50% 50%, rgba(255,59,92,.3), rgba(255,59,92,.07) 45%, transparent 72%)}
+  @keyframes flash{0%{opacity:0}10%{opacity:1}35%{opacity:.45}100%{opacity:0}}
+
+  /* humpback: a white-hot core, a double pulse, and shockwave rings */
+  .flash.big{animation:flashbig 1.9s ease-out forwards}
+  .flash.big.b{background:radial-gradient(circle at 50% 50%, rgba(255,255,255,.55), rgba(0,229,143,.62) 20%, rgba(0,229,143,.16) 54%, transparent 78%)}
+  .flash.big.s{background:radial-gradient(circle at 50% 50%, rgba(255,255,255,.55), rgba(255,59,92,.62) 20%, rgba(255,59,92,.16) 54%, transparent 78%)}
+  @keyframes flashbig{0%{opacity:0}3%{opacity:1}15%{opacity:.3}24%{opacity:.95}45%{opacity:.4}100%{opacity:0}}
+
+  .rings{position:fixed;inset:0;z-index:45;pointer-events:none;overflow:hidden}
+  .ring{
+    position:absolute;left:50%;top:50%;width:12px;height:12px;border-radius:50%;
+    border:4px solid;transform:translate(-50%,-50%);
+    animation:ringout 1.7s cubic-bezier(.12,.7,.25,1) forwards;
+  }
+  .ring.d2{animation-delay:.24s}
+  .ring.d3{animation-delay:.5s}
+  .ring.b{border-color:rgba(0,229,143,.8)}
+  .ring.s{border-color:rgba(255,59,92,.8)}
+  @keyframes ringout{
+    0%{width:12px;height:12px;opacity:.95;border-width:5px}
+    100%{width:190vmax;height:190vmax;opacity:0;border-width:1px}
+  }
+
+  .whale{
+    position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:50;
+    width:max-content;max-width:92vw;
+    padding:30px 54px;text-align:center;border-radius:16px;
+    background:rgba(8,10,15,.93);backdrop-filter:blur(9px);
+    animation:slam .5s cubic-bezier(.15,1.5,.4,1);
+  }
+  .whale.b{border:1px solid rgba(0,229,143,.4);box-shadow:0 0 70px rgba(0,229,143,.24)}
+  .whale.s{border:1px solid rgba(255,59,92,.4);box-shadow:0 0 70px rgba(255,59,92,.24)}
+  @keyframes slam{
+    0%{transform:translate(-50%,-50%) scale(1.45);opacity:0;filter:blur(6px)}
+    65%{transform:translate(-50%,-50%) scale(.99);opacity:1;filter:none}
+    100%{transform:translate(-50%,-50%) scale(1)}
+  }
+
+  /* dolphin + shark card: same slam, scaled down so it does not dominate */
+  .whale.sm{padding:20px 36px}
+  .whale.sm .glyph{font-size:22px;margin-bottom:4px}
+  .whale.sm .tag{font-size:10px;letter-spacing:.4em;margin-bottom:8px}
+  .whale.sm .side{font-size:clamp(24px,3.6vw,38px)}
+  .whale.sm .amt{font-size:clamp(22px,3.4vw,34px);margin-top:10px}
+  .whale.sm .meta{font-size:10px;margin-top:9px}
+  .whale.sm.b{box-shadow:0 0 46px rgba(0,229,143,.18)}
+  .whale.sm.s{box-shadow:0 0 46px rgba(255,59,92,.18)}
+  .flash.sm{animation-duration:.45s}
+  .flash.sm.b{background:radial-gradient(circle at 50% 50%, rgba(0,229,143,.16), transparent 62%)}
+  .flash.sm.s{background:radial-gradient(circle at 50% 50%, rgba(255,59,92,.16), transparent 62%)}
+
+  /* humpback card: bigger, brighter, lands harder */
+  .whale.big{padding:44px 78px;animation:slambig .62s cubic-bezier(.15,1.5,.4,1)}
+  .whale.big.b{border-color:rgba(0,229,143,.85);box-shadow:0 0 260px rgba(0,229,143,.6),0 0 0 2px rgba(0,229,143,.3),inset 0 0 70px rgba(0,229,143,.09)}
+  .whale.big.s{border-color:rgba(255,59,92,.85);box-shadow:0 0 260px rgba(255,59,92,.6),0 0 0 2px rgba(255,59,92,.3),inset 0 0 70px rgba(255,59,92,.09)}
+  @keyframes slambig{
+    0%{transform:translate(-50%,-50%) scale(3.4);opacity:0;filter:blur(22px)}
+    52%{transform:translate(-50%,-50%) scale(.93);opacity:1;filter:none}
+    72%{transform:translate(-50%,-50%) scale(1.05)}
+    86%{transform:translate(-50%,-50%) scale(.99)}
+    100%{transform:translate(-50%,-50%) scale(1)}
+  }
+  .whale.big .glyph{font-size:52px;animation:breach 1.6s ease-in-out infinite}
+  @keyframes breach{0%,100%{transform:translateY(0) rotate(-4deg)}50%{transform:translateY(-8px) rotate(4deg)}}
+  .whale.big .tag{animation:tagpulse .85s ease-in-out infinite}
+  @keyframes tagpulse{0%,100%{opacity:.45}50%{opacity:1}}
+  .whale.big .side{font-size:clamp(40px,7vw,76px)}
+  .whale.big .amt{font-size:clamp(36px,6.4vw,66px)}
+  .whale .glyph{font-size:28px;margin-bottom:6px;opacity:.9}
+  .whale .tag{font-size:12px;letter-spacing:.5em;color:var(--dim);margin-bottom:10px}
+  .whale .side{font-size:clamp(34px,6vw,62px);font-weight:800;letter-spacing:.1em;line-height:1}
+  .whale.b .side{color:var(--buy)}
+  .whale.s .side{color:var(--sell)}
+  .whale .amt{margin-top:14px;font-size:clamp(30px,5.4vw,54px);font-weight:800;font-variant-numeric:tabular-nums}
+  .whale .meta{margin-top:12px;font-size:12px;letter-spacing:.2em;color:var(--dim)}
+
+  @media (max-width:1180px){
+    main{grid-template-columns:1fr 290px}
+    .strip{gap:18px}
+    .regime{min-width:210px}
+  }
+  @media (max-width:960px){
+    /* stack everything and let the page scroll — a chart needs real height.
+       overflow-x stays hidden so the whale shake can't spawn a scrollbar. */
+    body{overflow-y:auto;overflow-x:hidden}
+    html,body,#root,.app{height:auto}
+    .app{min-height:100%;padding:16px 14px}
+    .wordmark{font-size:22px;letter-spacing:.3em}
+    header .pair{display:none}   /* only the header badge — not the one on signal cards */
+    .hud{gap:12px}
+    .tabs{margin-left:0;order:3;width:100%}
+    .tab{flex:1 1 0}
+    /* chat and signals need real height once the page scrolls */
+    .page{min-height:72vh}
+    .px .v{font-size:17px}
+    main{grid-template-columns:1fr;grid-auto-rows:min-content}
+    .panel.chart .tvhost{height:56vh;min-height:340px}
+    .panel.tech .tvhost{height:420px}
+    .tvhost{position:relative;flex:0 0 auto}
+    /* legend drops onto its own line rather than squeezing the print stream */
+    .prints{height:auto;flex-wrap:wrap;gap:10px}
+    .stream{width:100%}
+    .legend{width:100%;margin-left:0;padding-left:0;border-left:none;flex-wrap:wrap;gap:10px}
+    .strip{flex-direction:column;align-items:stretch;gap:16px}
+    .regime{min-width:0;text-align:center}
+    .regime .sub{max-width:none}
+    .pct .num{font-size:28px}
+    footer{flex-direction:column;gap:6px;text-align:center}
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.4/babel.min.js"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// Binance public trade stream — no API key. Endpoints are tried in order and
+// rotated on failure (the :9443 host is blocked on some networks; the .vision
+// mirror is Binance's own keyless market-data endpoint).
+const ENDPOINTS = [
+  'wss://stream.binance.com:9443/ws/btcusdt@trade',
+  'wss://data-stream.binance.vision/ws/btcusdt@trade',
+  'wss://stream.binance.com/ws/btcusdt@trade'
+];
+const OPEN_TIMEOUT = 3500;  // give up on a silent handshake and try the next host
+const WINDOW_MS = 60000;    // rolling one minute
+const BULL_PCT  = 60;
+const BEAR_PCT  = 40;
+
+// single-trade whale threshold; ?whale=5000 lowers it to see the alert on demand
+const QS        = new URLSearchParams(location.search);
+const qsWhale   = parseFloat(QS.get('whale'));
+
+// Admin key for posting signals. Change this string to whatever you want.
+// Honest caveat: this file is served as-is, so anyone who opens the source can
+// read it. It keeps casual visitors out of the composer — it is not real auth.
+const ADMIN_KEY = 'tape-admin';
+const qsAdmin   = QS.get('admin');
+const WHALE_USD = isFinite(qsWhale) && qsWhale > 0 ? qsWhale : 100000;
+
+// Size ladder, keyed off the whale threshold so ?whale= scales the whole thing.
+// Alerts start at DOLPHIN — shrimp and fish are classified for the legend but
+// never fire and never reach the ticker; they are most of the tape.
+const HUMPBACK_USD = WHALE_USD * 5;     // $500k+  everything
+const SHARK_USD    = WHALE_USD / 2;     // $50k+   quiet tag
+const DOLPHIN_USD  = WHALE_USD / 10;    // $10k+   quiet tag  ← alert floor
+const FISH_USD     = WHALE_USD / 100;   // $1k+    silent
+
+
+// legend rows: what each icon means, and what it does when it fires
+const LADDER = [
+  { glyph: '🦐', name: 'SHRIMP',   from: 0,            to: FISH_USD,     does: 'not alerted — noise', quiet: true },
+  { glyph: '🐟', name: 'FISH',     from: FISH_USD,     to: DOLPHIN_USD,  does: 'not alerted — noise', quiet: true },
+  { glyph: '🐬', name: 'DOLPHIN',  from: DOLPHIN_USD,  to: SHARK_USD,    does: 'small pop-up + soft edge pulse' },
+  { glyph: '🦈', name: 'SHARK',    from: SHARK_USD,    to: WHALE_USD,    does: 'small pop-up + brighter pulse and a blip' },
+  { glyph: '🐳', name: 'WHALE',    from: WHALE_USD,    to: HUMPBACK_USD, does: 'full pop-up, flash, nudge and a boom' },
+  { glyph: '🐋', name: 'HUMPBACK', from: HUMPBACK_USD, to: null,         does: 'everything — shockwaves, siren, the works' }
+];
+
+// drama 0 → edge pulse only · 1 → edge pulse + blip · 2 → card, flash, nudge, boom
+// 3 → everything, louder and longer, with shockwave rings
+const tierOf = (n) =>
+  n >= HUMPBACK_USD ? { key: 'humpback', name: 'HUMPBACK', glyph: '🐋', drama: 3 } :
+  n >= WHALE_USD    ? { key: 'whale',    name: 'WHALE',    glyph: '🐳', drama: 2 } :
+  n >= SHARK_USD    ? { key: 'shark',    name: 'SHARK',    glyph: '🦈', drama: 1 } :
+  n >= DOLPHIN_USD  ? { key: 'dolphin',  name: 'DOLPHIN',  glyph: '🐬', drama: 0 } :
+  null;
+
+const usd = (n) => {
+  if (n >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
+  if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return '$' + (n / 1e3).toFixed(1) + 'K';
+  return '$' + n.toFixed(0);
+};
+const px = (n) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/* whale alert sound, synthesised — no audio files */
+function createAudio() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  const ctx = new AC();
+  const master = ctx.createGain();
+  master.gain.value = 0.85;
+  master.connect(ctx.destination);
+
+  let nb = null;
+  const noise = () => {
+    if (!nb) {
+      const len = Math.floor(ctx.sampleRate * 0.8);
+      nb = ctx.createBuffer(1, len, ctx.sampleRate);
+      const d = nb.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
+    }
+    return nb;
+  };
+
+  return {
+    ctx,
+    // shark: a single quiet blip, nothing more
+    tick(isBuy) {
+      if (ctx.state === 'suspended') ctx.resume();
+      const t = ctx.currentTime;
+      const o = ctx.createOscillator();
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(isBuy ? 660 : 440, t);
+      o.frequency.exponentialRampToValueAtTime(isBuy ? 880 : 330, t + 0.07);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.07, t + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+      o.connect(g); g.connect(master);
+      o.start(t); o.stop(t + 0.14);
+    },
+
+    // big = humpback: deeper, longer, with a second swell under it
+    boom(isBuy, big) {
+      if (ctx.state === 'suspended') ctx.resume();
+      const t = ctx.currentTime;
+      const tail = big ? 2.2 : 0.8;
+
+      // sub-bass impact
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.setValueAtTime((isBuy ? 195 : 155) * (big ? 0.7 : 1), t);
+      o.frequency.exponentialRampToValueAtTime((isBuy ? 55 : 36) * (big ? 0.6 : 1), t + tail * 0.85);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(big ? 1.0 : 0.42, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + tail);
+      o.connect(g); g.connect(master);
+      o.start(t); o.stop(t + tail + 0.05);
+
+      // humpback only: a slow detuned swell so it reads as much bigger
+      if (big) {
+        const sw = ctx.createOscillator();
+        sw.type = 'sawtooth';
+        sw.frequency.setValueAtTime(isBuy ? 82 : 62, t);
+        sw.frequency.exponentialRampToValueAtTime(isBuy ? 41 : 31, t + 1.6);
+        const sf = ctx.createBiquadFilter();
+        sf.type = 'lowpass';
+        sf.frequency.setValueAtTime(400, t);
+        const sg = ctx.createGain();
+        sg.gain.setValueAtTime(0.0001, t);
+        sg.gain.exponentialRampToValueAtTime(0.3, t + 0.25);
+        sg.gain.exponentialRampToValueAtTime(0.0001, t + 1.8);
+        sw.connect(sf); sf.connect(sg); sg.connect(master);
+        sw.start(t); sw.stop(t + 1.85);
+      }
+
+      // alert tones: two for a whale, a three-note siren for a humpback
+      const tones = big
+        ? (isBuy ? [784, 1175, 1568] : [622, 415, 311])
+        : (isBuy ? [784, 1175] : [622, 415]);
+      tones.forEach((f, i) => {
+        const off = i * (big ? 0.22 : 0.17);
+        const p = ctx.createOscillator();
+        p.type = 'square';
+        p.frequency.setValueAtTime(f, t + off);
+        const pg = ctx.createGain();
+        pg.gain.setValueAtTime(0.0001, t + off);
+        pg.gain.exponentialRampToValueAtTime(big ? 0.22 : 0.09, t + off + 0.012);
+        pg.gain.exponentialRampToValueAtTime(0.0001, t + off + (big ? 0.42 : 0.26));
+        p.connect(pg); pg.connect(master);
+        p.start(t + off); p.stop(t + off + (big ? 0.45 : 0.28));
+      });
+
+      // filtered noise splash
+      const n = ctx.createBufferSource();
+      n.buffer = noise();
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.setValueAtTime(2200, t);
+      lp.frequency.exponentialRampToValueAtTime(220, t + 0.5);
+      const ng = ctx.createGain();
+      ng.gain.setValueAtTime(big ? 0.45 : 0.16, t);
+      ng.gain.exponentialRampToValueAtTime(0.0001, t + (big ? 0.9 : 0.45));
+      n.connect(lp); lp.connect(ng); ng.connect(master);
+      n.start(t); n.stop(t + (big ? 0.95 : 0.5));
+    },
+    close() { try { ctx.close(); } catch (e) {} }
+  };
+}
+
+/* TradingView embed: their loader script injects an iframe into its own parent
+   node, so the mount point is managed imperatively and kept free of JSX children. */
+function TVWidget({ src, config, title, source, variant }) {
+  const mount = useRef(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    const host = mount.current;
+    setFailed(false);
+    host.innerHTML = '';
+
+    const box = document.createElement('div');
+    box.className = 'tradingview-widget-container';
+    box.style.cssText = 'height:100%;width:100%';
+    const slot = document.createElement('div');
+    slot.className = 'tradingview-widget-container__widget';
+    slot.style.cssText = 'height:100%;width:100%';
+    box.appendChild(slot);
+
+    const s = document.createElement('script');
+    s.type = 'text/javascript';
+    s.async = true;
+    s.src = src;
+    s.innerHTML = JSON.stringify(config);
+    s.onerror = () => setFailed(true);
+    box.appendChild(s);
+    host.appendChild(box);
+
+    // if no iframe has appeared, the embed is blocked (offline / network policy)
+    const check = setTimeout(() => {
+      if (!host.querySelector('iframe')) setFailed(true);
+    }, 8000);
+
+    return () => { clearTimeout(check); host.innerHTML = ''; };
+  }, [src, JSON.stringify(config)]);
+
+  return (
+    <div className={'panel ' + variant}>
+      <div className="phead"><span>{title}</span><span className="src">{source}</span></div>
+      <div className="tvhost">
+        <div className="tvmount" ref={mount}></div>
+        {failed && (
+          <div className="tvfail">
+            <b>TRADINGVIEW UNAVAILABLE</b>
+            <span>THE EMBED COULD NOT LOAD — CHECK NETWORK ACCESS TO TRADINGVIEW.COM</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const CHART_CFG = {
+  autosize: true,
+  symbol: 'BINANCE:BTCUSDT',
+  interval: '5',
+  timezone: 'Etc/UTC',
+  theme: 'dark',
+  style: '1',
+  locale: 'en',
+  backgroundColor: 'rgba(12,14,20,1)',
+  gridColor: 'rgba(255,255,255,0.05)',
+  hide_top_toolbar: false,
+  hide_legend: false,
+  allow_symbol_change: false,
+  save_image: false,
+  withdateranges: true,
+  details: false,
+  support_host: 'https://www.tradingview.com'
+};
+
+const TECH_CFG = {
+  interval: '15m',
+  width: '100%',
+  height: '100%',
+  isTransparent: true,
+  symbol: 'BINANCE:BTCUSDT',
+  showIntervalTabs: true,
+  displayMode: 'single',
+  locale: 'en',
+  colorTheme: 'dark'
+};
+
+/* ── shared state ───────────────────────────────────────────────────────────
+   Local only: localStorage for durability, BroadcastChannel to sync other tabs
+   and windows on THIS machine. Chat does not reach other people's computers —
+   swapping store.read/store.write for a backend is all that stands in the way.
+--------------------------------------------------------------------------- */
+const chan = ('BroadcastChannel' in window) ? new BroadcastChannel('tape') : null;
+
+const store = {
+  read(key, fallback) {
+    try {
+      const raw = localStorage.getItem('tape.' + key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch (e) { return fallback; }
+  },
+  write(key, value) {
+    try { localStorage.setItem('tape.' + key, JSON.stringify(value)); } catch (e) {}
+    if (chan) { try { chan.postMessage({ key: key, value: value }); } catch (e) {} }
+  }
+};
+
+function useShared(key, initial) {
+  const [val, setVal] = useState(() => store.read(key, initial));
+  useEffect(() => {
+    const onMsg = (e) => { if (e.data && e.data.key === key) setVal(e.data.value); };
+    const onStorage = (e) => { if (e.key === 'tape.' + key) setVal(store.read(key, initial)); };
+    if (chan) chan.addEventListener('message', onMsg);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      if (chan) chan.removeEventListener('message', onMsg);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, [key]);
+  const put = useCallback((next) => { setVal(next); store.write(key, next); }, [key]);
+  return [val, put];
+}
+
+/* ── desktop pop-out notifications ──────────────────────────────────────────
+   Needs a secure context: https:// or http://localhost. Opened straight off
+   disk as file://, the browser blocks the API entirely — hence canPopup.
+--------------------------------------------------------------------------- */
+const canPopup = ('Notification' in window) && window.isSecureContext;
+
+// tiny emoji icon so the pop-out carries the tier glyph, no asset files needed
+const iconCache = {};
+const emojiIcon = (glyph) => {
+  if (iconCache[glyph] !== undefined) return iconCache[glyph];
+  try {
+    const c = document.createElement('canvas');
+    c.width = c.height = 96;
+    const x = c.getContext('2d');
+    x.fillStyle = '#06070a';
+    x.fillRect(0, 0, 96, 96);
+    x.font = '62px serif';
+    x.textAlign = 'center';
+    x.textBaseline = 'middle';
+    x.fillText(glyph, 48, 53);
+    iconCache[glyph] = c.toDataURL();
+  } catch (e) { iconCache[glyph] = undefined; }
+  return iconCache[glyph];
+};
+
+const notify = (title, body, tag, glyph) => {
+  if (!canPopup || Notification.permission !== 'granted') return;
+  try {
+    // silent: the app plays its own sound, no need for the OS chime on top
+    const n = new Notification(title, { body: body, tag: tag, icon: emojiIcon(glyph), silent: true });
+    n.onclick = () => { window.focus(); n.close(); };
+    setTimeout(() => { try { n.close(); } catch (e) {} }, 9000);
+  } catch (e) {}
+};
+
+const ago = (ts) => {
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60)    return s + 's ago';
+  if (s < 3600)  return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+};
+
+const rid = () => Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);
+
+/* ── news ───────────────────────────────────────────────────────────────────
+   Pulled straight from public crypto RSS through rss2json (no key, CORS-open),
+   then scored locally for BTC correlation and lean. The scoring is keyword
+   rules, not a language model — see the notes in the header of this section.
+--------------------------------------------------------------------------- */
+const RSS2JSON = 'https://api.rss2json.com/v1/api.json?rss_url=';
+const FEEDS = [
+  { src: 'COINTELEGRAPH', url: 'https://cointelegraph.com/rss' },
+  { src: 'COINDESK',      url: 'https://www.coindesk.com/arc/outboundfeeds/rss/' }
+];
+const FNG_URL = 'https://api.alternative.me/fng/?limit=1';
+
+// weighted topics decide whether a story is BTC-correlated enough to publish
+const TOPICS = [
+  { tag: 'BTC',      w: 4, rx: /\b(bitcoin|btc|satoshi)\b/i },
+  { tag: 'ETF',      w: 3, rx: /\b(etf|etfs|inflow|outflow|blackrock|ibit|fidelity)\b/i },
+  { tag: 'MACRO',    w: 3, rx: /\b(fed|fomc|rate cut|rate hike|inflation|cpi|treasury|dollar|jobs report|recession)\b/i },
+  { tag: 'MINING',   w: 3, rx: /\b(mining|miner|miners|hashrate|hash rate|halving)\b/i },
+  { tag: 'FLOWS',    w: 3, rx: /\b(whale|whales|liquidation|liquidated|short squeeze|all-time high|ath|outflows|inflows)\b/i },
+  { tag: 'REGULATION', w: 2, rx: /\b(sec|cftc|regulator|regulation|lawsuit|custody|approval|approve|ban)\w*/i },
+  { tag: 'EXCHANGE', w: 2, rx: /\b(binance|coinbase|kraken|bybit|okx|exchange)\b/i },
+  { tag: 'CRYPTO',   w: 1, rx: /\b(crypto|blockchain|ethereum|eth|stablecoin|defi|altcoin)\b/i }
+];
+const BULL_RX = /\b(surge|surges|rally|rallies|soar|soars|jump|jumps|record|approves?|approved|approval|adopt\w*|inflow\w*|accumulat\w*|bullish|gains?|rises?|breakout|greenlight|high|buy\w*|upgrade\w*)\b/gi;
+const BEAR_RX = /\b(crash\w*|plunge\w*|drop\w*|falls?|fell|dump\w*|bans?|banned|reject\w*|hack\w*|exploit\w*|outflow\w*|liquidat\w*|bearish|declin\w*|slump\w*|fraud|probe|froze|freeze|seiz\w*|lawsuit|selloff|sell-off)\b/gi;
+
+const scoreNews = (text) => {
+  const topics = [];
+  let rel = 0;
+  for (const t of TOPICS) if (t.rx.test(text)) { topics.push(t.tag); rel += t.w; }
+  const bull = (text.match(BULL_RX) || []).length;
+  const bear = (text.match(BEAR_RX) || []).length;
+  const lean = bull > bear ? 'BULLISH' : bear > bull ? 'BEARISH' : 'NEUTRAL';
+  return { topics, rel, lean };
+};
+
+const parseWhen = (s) => {
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)) return Date.parse(s.replace(' ', 'T') + 'Z');
+  const t = Date.parse(s);
+  return isNaN(t) ? Date.now() : t;
+};
+
+async function pullNews() {
+  const out = [];
+  await Promise.all(FEEDS.map(async (f) => {
+    const r = await fetch(RSS2JSON + encodeURIComponent(f.url));
+    const j = await r.json();
+    if (j.status !== 'ok' || !Array.isArray(j.items)) throw new Error('feed ' + f.src + ' unavailable');
+    for (const it of j.items) {
+      const text = (it.title + ' ' + (it.description || '')).replace(/<[^>]*>/g, ' ');
+      const s = scoreNews(text);
+      if (s.rel < 2) continue;                      // not correlated enough to publish
+      out.push({
+        id: it.guid || it.link, title: it.title, link: it.link,
+        src: f.src, ts: parseWhen(it.pubDate),
+        topics: s.topics, rel: s.rel, lean: s.lean
+      });
+    }
+  }));
+  const seen = {};
+  return out
+    .filter((n) => (seen[n.id] ? false : (seen[n.id] = true)))
+    .sort((a, b) => b.ts - a.ts)
+    .slice(0, 60);
+}
+
+function NewsView({ news, meta, fng, refresh, isAdmin, notes, setNotes, hidden, setHidden }) {
+  const [draft, setDraft] = useState('');
+  const [armed, setArmed] = useState(null);
+
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(null), 4000);
+    return () => clearTimeout(t);
+  }, [armed]);
+
+  const post = () => {
+    const text = draft.trim();
+    if (!text) return;
+    setNotes([{ id: rid(), ts: Date.now(), text: text.slice(0, 500) }].concat(notes).slice(0, 40));
+    setDraft('');
+  };
+
+  const feed = notes
+    .map((n) => ({ id: n.id, ts: n.ts, admin: true, title: n.text }))
+    .concat(news.filter((n) => hidden.indexOf(n.id) === -1))
+    .sort((a, b) => b.ts - a.ts);
+
+  return (
+    <div className="page">
+      <div className="card">
+        <div className="phead">
+          <span>NEWS</span>
+          <span className="src">BROADCAST ONLY · COINTELEGRAPH + COINDESK</span>
+        </div>
+
+        <div className="newsbar">
+          <span>
+            {meta.loading ? 'PULLING…' : meta.error ? 'FEED UNREACHABLE' : 'UPDATED ' + ago(meta.at)}
+            {' · '}{feed.length} STORIES
+          </span>
+          {fng && (
+            <span className="fng" title="Crypto Fear & Greed Index (alternative.me)">
+              FEAR / GREED <b style={{ color: fng.value >= 60 ? 'var(--buy)' : fng.value <= 40 ? 'var(--sell)' : 'var(--neutral)' }}>
+                {fng.value}
+              </b> {fng.label.toUpperCase()}
+            </span>
+          )}
+          <button className="btn ghost" onClick={refresh} disabled={meta.loading}>REFRESH</button>
+        </div>
+
+        {meta.error && feed.length === 0 ? (
+          <div className="empty-pane">
+            COULD NOT REACH THE NEWS FEEDS<br />{String(meta.error).toUpperCase()}
+          </div>
+        ) : feed.length === 0 ? (
+          <div className="empty-pane">{meta.loading ? 'PULLING HEADLINES…' : 'NOTHING CORRELATED RIGHT NOW'}</div>
+        ) : (
+          <div className="newsfeed">
+            {feed.map((n) => (
+              <div className={'news' + (n.admin ? ' fromadmin' : '')} key={n.id}>
+                <div className="nhead">
+                  <span className="nsrc">{n.admin ? '📡 ADMIN' : n.src}</span>
+                  {!n.admin && <span className={'lean ' + n.lean.toLowerCase()}>{n.lean}</span>}
+                  {!n.admin && n.topics.slice(0, 4).map((t) => <span className="topic" key={t}>{t}</span>)}
+                  <span className="nwhen">{ago(n.ts)}</span>
+                </div>
+                {n.admin
+                  ? <div className="ntitle plain">{n.title}</div>
+                  : <a className="ntitle" href={n.link} target="_blank" rel="noopener noreferrer">{n.title}</a>}
+                {isAdmin && (
+                  <button
+                    className={'btn ghost del nkill' + (armed === n.id ? ' armed' : '')}
+                    onClick={() => {
+                      if (armed !== n.id) { setArmed(n.id); return; }
+                      if (n.admin) setNotes(notes.filter((x) => x.id !== n.id));
+                      else setHidden(hidden.concat(n.id).slice(-300));
+                      setArmed(null);
+                    }}
+                  >
+                    {armed === n.id ? 'CONFIRM' : n.admin ? 'DELETE' : 'HIDE'}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {isAdmin ? (
+          <div className="composer">
+            <input
+              className="inp" maxLength={500} placeholder="post a note to the news channel"
+              value={draft} onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') post(); }}
+            />
+            <button className="btn" onClick={post}>BROADCAST</button>
+          </div>
+        ) : (
+          <div className="lock"><span className="hint">READ ONLY — HEADLINES PULL IN AUTOMATICALLY, ONLY THE ADMIN CAN POST</span></div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── chat ─────────────────────────────────────────────────────────────────── */
+function ChatView({ msgs, setMsgs, nick, setNick }) {
+  const [draft, setDraft] = useState('');
+  const [nameDraft, setNameDraft] = useState('');
+  const foot = useRef(null);
+
+  useEffect(() => { if (foot.current) foot.current.scrollIntoView({ block: 'end' }); }, [msgs.length]);
+
+  const send = () => {
+    const text = draft.trim();
+    if (!text) return;
+    setMsgs(msgs.concat({ id: rid(), nick: nick, text: text.slice(0, 500), ts: Date.now() }).slice(-200));
+    setDraft('');
+  };
+
+  if (!nick) {
+    return (
+      <div className="page">
+        <div className="card">
+          <div className="phead"><span>CHAT</span><span className="src">PICK A HANDLE</span></div>
+          <div className="empty-pane">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14, alignItems: 'center' }}>
+              <span>CHOOSE THE NAME YOU POST UNDER</span>
+              <div style={{ display: 'flex', gap: 9 }}>
+                <input
+                  className="inp"
+                  autoFocus
+                  maxLength={18}
+                  placeholder="handle"
+                  value={nameDraft}
+                  onChange={(e) => setNameDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && nameDraft.trim()) setNick(nameDraft.trim()); }}
+                />
+                <button className="btn" onClick={() => nameDraft.trim() && setNick(nameDraft.trim())}>ENTER</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="page">
+      <div className="card">
+        <div className="phead">
+          <span>CHAT</span>
+          <span className="src">{msgs.length} MESSAGES · YOU ARE {nick.toUpperCase()}</span>
+        </div>
+
+        {msgs.length === 0 ? (
+          <div className="empty-pane">NOTHING SAID YET — START IT OFF</div>
+        ) : (
+          <div className="msgs">
+            {msgs.map((m) => (
+              <div className={'msg' + (m.nick === nick ? ' mine' : '')} key={m.id}>
+                <span className="who">{m.nick}</span>
+                <span className="txt">{m.text}</span>
+                <span className="at">{ago(m.ts)}</span>
+              </div>
+            ))}
+            <div ref={foot}></div>
+          </div>
+        )}
+
+        <div className="composer">
+          <input
+            className="inp"
+            maxLength={500}
+            placeholder="say something"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') send(); }}
+          />
+          <button className="btn" onClick={send}>SEND</button>
+          <button className="btn ghost" onClick={() => setNick('')} title="change your handle">{nick}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── signals (admin posts, everyone reads) ────────────────────────────────── */
+const BLANK_SIG = { side: 'LONG', pair: 'BTC/USDT', entry: '', target: '', stop: '', note: '' };
+
+function SignalsView({ sigs, setSigs, isAdmin, unlock, price }) {
+  const [form, setForm] = useState(BLANK_SIG);
+  const [key, setKey] = useState('');
+  const [armed, setArmed] = useState(null);   // delete needs a second click
+  const set = (k, v) => setForm((f) => Object.assign({}, f, { [k]: v }));
+
+  // arming expires, so a stray first click can't sit there waiting to bite
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(null), 4000);
+    return () => clearTimeout(t);
+  }, [armed]);
+
+  const remove = (id) => { setSigs(sigs.filter((s) => s.id !== id)); setArmed(null); };
+
+  const publish = () => {
+    if (!form.entry.trim()) return;
+    setSigs([{
+      id: rid(), ts: Date.now(), status: 'OPEN',
+      side: form.side, pair: form.pair.trim() || 'BTC/USDT',
+      entry: form.entry.trim(), target: form.target.trim(), stop: form.stop.trim(),
+      note: form.note.trim().slice(0, 400)
+    }].concat(sigs).slice(0, 50));
+    setForm(Object.assign({}, BLANK_SIG, { side: form.side, pair: form.pair }));
+  };
+
+  const mark = (id, status) =>
+    setSigs(sigs.map((s) => (s.id === id ? Object.assign({}, s, { status: status }) : s)));
+
+  return (
+    <div className="page">
+      <div className="card">
+        <div className="phead">
+          <span>SIGNALS</span>
+          <span className="src">{isAdmin ? 'ADMIN — YOU CAN POST' : 'READ ONLY'}</span>
+        </div>
+
+        {sigs.length === 0 ? (
+          <div className="empty-pane">NO SIGNALS POSTED YET</div>
+        ) : (
+          <div className="sigs">
+            {sigs.map((s) => (
+              <div className={'sig ' + s.side.toLowerCase()} key={s.id}>
+                <div className="top">
+                  <span className="side">{s.side}</span>
+                  <span className="pair">{s.pair}</span>
+                  <span className={'st ' + (s.status === 'TARGET HIT' ? 'hit' : s.status === 'STOPPED' ? 'stopped' : '')}>
+                    {s.status}
+                  </span>
+                </div>
+                <div className="levels">
+                  <div className="lvl"><span className="k">ENTRY</span><span className="v">{s.entry}</span></div>
+                  {s.target && <div className="lvl"><span className="k">TARGET</span><span className="v" style={{ color: 'var(--buy)' }}>{s.target}</span></div>}
+                  {s.stop && <div className="lvl"><span className="k">STOP</span><span className="v" style={{ color: 'var(--sell)' }}>{s.stop}</span></div>}
+                </div>
+                {s.note && <div className="note">{s.note}</div>}
+                <div className="when">{ago(s.ts)}</div>
+                {isAdmin && (
+                  <div className="acts">
+                    {s.status === 'OPEN' && (
+                      <button className="btn ghost" onClick={() => mark(s.id, 'TARGET HIT')}>TARGET HIT</button>
+                    )}
+                    {s.status === 'OPEN' && (
+                      <button className="btn ghost" onClick={() => mark(s.id, 'STOPPED')}>STOPPED</button>
+                    )}
+                    {s.status === 'OPEN' && (
+                      <button className="btn ghost" onClick={() => mark(s.id, 'CLOSED')}>CLOSE</button>
+                    )}
+                    <button
+                      className={'btn ghost del' + (armed === s.id ? ' armed' : '')}
+                      onClick={() => (armed === s.id ? remove(s.id) : setArmed(s.id))}
+                      title={armed === s.id ? 'Click again to delete for good' : 'Delete this signal'}
+                    >
+                      {armed === s.id ? 'CONFIRM DELETE' : 'DELETE'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {isAdmin ? (
+          <div className="admin">
+            <div className="row">
+              <div className="seg">
+                <button className={'long' + (form.side === 'LONG' ? ' on' : '')} onClick={() => set('side', 'LONG')}>LONG</button>
+                <button className={'short' + (form.side === 'SHORT' ? ' on' : '')} onClick={() => set('side', 'SHORT')}>SHORT</button>
+              </div>
+              <input className="inp" placeholder="pair" value={form.pair} onChange={(e) => set('pair', e.target.value)} />
+              <input className="inp" placeholder={price ? 'entry (' + px(price) + ')' : 'entry'} value={form.entry} onChange={(e) => set('entry', e.target.value)} />
+              <input className="inp" placeholder="target" value={form.target} onChange={(e) => set('target', e.target.value)} />
+              <input className="inp" placeholder="stop" value={form.stop} onChange={(e) => set('stop', e.target.value)} />
+            </div>
+            <div className="row">
+              <input
+                className="inp" placeholder="reasoning (optional)" value={form.note}
+                onChange={(e) => set('note', e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') publish(); }}
+              />
+              {price && !form.entry && (
+                <button className="btn ghost" onClick={() => set('entry', px(price))}>USE LAST ${px(price)}</button>
+              )}
+              <button className="btn" onClick={publish}>PUBLISH SIGNAL</button>
+            </div>
+          </div>
+        ) : (
+          <div className="lock">
+            <span className="hint">SIGNALS ARE POSTED BY THE ADMIN</span>
+            <input
+              className="inp" style={{ maxWidth: 200 }} type="password" placeholder="admin key"
+              value={key} onChange={(e) => setKey(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { unlock(key); setKey(''); } }}
+            />
+            <button className="btn ghost" onClick={() => { unlock(key); setKey(''); }}>UNLOCK</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const trades   = useRef([]);   // rolling window of {t, usd, buy}
+  const priceRef = useRef(null);
+  const dirRef   = useRef(0);
+  const audio    = useRef(null);
+  const whaleTO  = useRef(null);
+  const quakeTO  = useRef(null);
+  const edgeTO   = useRef(null);
+
+  const [flow, setFlow]     = useState({ buy: 50, sell: 50, bUsd: 0, sUsd: 0, n: 0, live: false });
+  const [price, setPrice]   = useState(null);
+  const [dir, setDir]       = useState(0);
+  const [status, setStatus] = useState('connecting');
+  const [whale, setWhale]   = useState(null);
+  const [edge, setEdge]     = useState(null);
+  const [quake, setQuake]   = useState(false);
+  const [sound, setSound]   = useState(false);
+  const [popups, setPopups] = useState(false);
+  const popupsRef = useRef(false);
+  // on-screen pop-up cards: on by default, remembered once you change it
+  const [drama, setDrama] = useState(() => store.read('drama', true) !== false);
+  const dramaRef = useRef(true);
+  const [prints, setPrints] = useState([]);
+  const [counts, setCounts] = useState({ dolphin: 0, shark: 0, whale: 0, humpback: 0 });
+
+  // pages
+  const [view, setView]     = useState('tape');
+  const [msgs, setMsgs]     = useShared('chat', []);
+  const [sigs, setSigs]     = useShared('signals', []);
+  const [nick, setNick]     = useState(() => store.read('nick', ''));
+  const [isAdmin, setAdmin] = useState(() => store.read('admin', false) === true || qsAdmin === ADMIN_KEY);
+  const [seenChat, setSeenChat] = useState(() => store.read('chat', []).length);
+  const [seenSigs, setSeenSigs] = useState(() => store.read('signals', []).length);
+
+  // news pulls in the background so the badge fills while you are on other tabs
+  const [news, setNews]         = useState([]);
+  const [newsMeta, setNewsMeta] = useState({ loading: true, error: null, at: Date.now() });
+  const [fng, setFng]           = useState(null);
+  const [notes, setNotes]       = useShared('news_notes', []);
+  const [hidden, setHidden]     = useShared('news_hidden', []);
+  const [seenNews, setSeenNews] = useState(0);
+  const pending = useRef([]);   // notable prints buffered between UI ticks
+
+  // every tier from dolphin up pops the card — the drama is what scales
+  const fireAlert = useCallback((w) => {
+    const d = w.tier.drama;
+
+    // with pop-ups switched off nothing takes over the screen — the ticker,
+    // the bar and the tallies still update, and sound is its own switch
+    if (dramaRef.current) {
+      setWhale(w);
+      if (d < 2) {
+        setEdge(w);                                // dolphin, shark: pulse the edges too
+        clearTimeout(edgeTO.current);
+        edgeTO.current = setTimeout(() => setEdge(null), 760);
+      } else {
+        setQuake(true);                            // whale shakes, humpback shakes hard
+        clearTimeout(quakeTO.current);
+        quakeTO.current = setTimeout(() => setQuake(false), d === 3 ? 1150 : 420);
+      }
+      clearTimeout(whaleTO.current);
+      whaleTO.current = setTimeout(() => setWhale(null),
+        d === 3 ? 5200 : d === 2 ? 2800 : d === 1 ? 2200 : 1800);
+    }
+
+    if (audio.current) {
+      try {
+        if (d === 1) audio.current.tick(w.buy);    // shark blip
+        else if (d >= 2) audio.current.boom(w.buy, d === 3);
+      } catch (e) {}
+    }
+
+    if (popupsRef.current && d >= 2) {
+      notify(
+        w.tier.glyph + ' ' + w.tier.name + ' ' + (w.buy ? 'BUY' : 'SELL'),
+        usd(w.usd) + '  ·  ' + w.qty.toFixed(3) + ' BTC @ $' + px(w.price),
+        'tape-' + w.tier.key, w.tier.glyph
+      );
+    }
+  }, []);
+
+  // binance public trade stream, auto-reconnecting
+  useEffect(() => {
+    let ws, alive = true, idx = 0, fails = 0, timer, openGuard;
+    const connect = () => {
+      setStatus(fails ? 'reconnecting' : 'connecting');
+      ws = new WebSocket(ENDPOINTS[idx % ENDPOINTS.length]);
+      const sock = ws;
+      clearTimeout(openGuard);
+      openGuard = setTimeout(() => {
+        if (sock.readyState === 0) { try { sock.close(); } catch (e) {} }  // silent host, fail over
+      }, OPEN_TIMEOUT);
+      ws.onopen = () => { clearTimeout(openGuard); fails = 0; setStatus('live'); };
+      ws.onmessage = (ev) => {
+        let d;
+        try { d = JSON.parse(ev.data); } catch (e) { return; }
+        if (!d || d.p === undefined) return;
+        const p = parseFloat(d.p), q = parseFloat(d.q);
+        if (!isFinite(p) || !isFinite(q)) return;
+        const notional = p * q;
+        const buy = d.m === false;            // m = buyer is maker, so taker was the seller
+        const t = d.T || Date.now();
+        trades.current.push({ t, usd: notional, buy });
+        if (priceRef.current !== null && p !== priceRef.current) dirRef.current = p > priceRef.current ? 1 : -1;
+        priceRef.current = p;
+
+        const tier = tierOf(notional);
+        if (tier) {
+          const rec = { id: String(t) + ':' + String(d.t), tier, usd: notional, price: p, qty: q, buy };
+          pending.current.push(rec);
+          fireAlert(rec);            // every tier reacts, scaled to its size
+        }
+      };
+      ws.onerror = () => { try { ws.close(); } catch (e) {} };
+      ws.onclose = () => {
+        clearTimeout(openGuard);
+        if (!alive) return;
+        setStatus('down');
+        fails++;
+        idx++;                                    // rotate to the next endpoint
+        timer = setTimeout(connect, Math.min(800 * fails, 6000));
+      };
+    };
+    connect();
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+      clearTimeout(openGuard);
+      if (ws) { try { ws.close(); } catch (e) {} }
+    };
+  }, [fireAlert]);
+
+  // recompute the rolling window at 10fps, decoupled from trade rate
+  useEffect(() => {
+    const id = setInterval(() => {
+      const cut = Date.now() - WINDOW_MS;
+      const arr = trades.current;
+      let i = 0;
+      while (i < arr.length && arr[i].t < cut) i++;
+      if (i) arr.splice(0, i);
+      let b = 0, s = 0;
+      for (let k = 0; k < arr.length; k++) {
+        if (arr[k].buy) b += arr[k].usd; else s += arr[k].usd;
+      }
+      const tot = b + s;
+      setFlow({
+        buy:  tot ? (b / tot) * 100 : 50,
+        sell: tot ? (s / tot) * 100 : 50,
+        bUsd: b, sUsd: s, n: arr.length, live: tot > 0
+      });
+      setPrice(priceRef.current);
+      setDir(dirRef.current);
+
+      // flush notable prints in one batch so a burst can't thrash React
+      if (pending.current.length) {
+        const batch = pending.current.splice(0, pending.current.length);
+        setPrints((prev) => batch.slice().reverse().concat(prev).slice(0, 7));
+        setCounts((prev) => {
+          const next = Object.assign({}, prev);
+          for (let j = 0; j < batch.length; j++) next[batch[j].tier.key]++;
+          return next;
+        });
+      }
+    }, 100);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => () => {
+    clearTimeout(whaleTO.current);
+    clearTimeout(quakeTO.current);
+    if (audio.current) audio.current.close();
+  }, []);
+
+  const refreshNews = useCallback(() => {
+    setNewsMeta((m) => Object.assign({}, m, { loading: true }));
+    pullNews()
+      .then((items) => { setNews(items); setNewsMeta({ loading: false, error: null, at: Date.now() }); })
+      .catch((e) => setNewsMeta({ loading: false, error: e.message || 'fetch failed', at: Date.now() }));
+  }, []);
+
+  useEffect(() => {
+    refreshNews();
+    const id = setInterval(refreshNews, 5 * 60 * 1000);   // every five minutes
+    return () => clearInterval(id);
+  }, [refreshNews]);
+
+  useEffect(() => {
+    const pull = () => fetch(FNG_URL)
+      .then((r) => r.json())
+      .then((j) => {
+        const d = j && j.data && j.data[0];
+        if (d) setFng({ value: parseInt(d.value, 10), label: d.value_classification });
+      })
+      .catch(() => {});
+    pull();
+    const id = setInterval(pull, 10 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // reading a tab clears its badge
+  useEffect(() => { if (view === 'chat') setSeenChat(msgs.length); }, [view, msgs.length]);
+  useEffect(() => { if (view === 'signals') setSeenSigs(sigs.length); }, [view, sigs.length]);
+  useEffect(() => { if (view === 'news') setSeenNews(news.length + notes.length); }, [view, news.length, notes.length]);
+
+  const saveNick = useCallback((n) => { setNick(n); store.write('nick', n); }, []);
+  const unlock = useCallback((k) => {
+    if (k === ADMIN_KEY) { setAdmin(true); store.write('admin', true); }
+  }, []);
+
+  useEffect(() => { popupsRef.current = popups; }, [popups]);
+  useEffect(() => { dramaRef.current = drama; }, [drama]);
+
+  const toggleDrama = () => {
+    const next = !drama;
+    setDrama(next);
+    store.write('drama', next);
+    if (!next) { setWhale(null); setEdge(null); setQuake(false); }   // clear anything mid-flight
+  };
+
+  // chat and signals only pop out when this window is in the background —
+  // if you are looking at the page, the page itself already shows them
+  const msgCount = useRef(msgs.length);
+  useEffect(() => {
+    if (msgs.length > msgCount.current && popupsRef.current && document.hidden) {
+      const m = msgs[msgs.length - 1];
+      notify('💬 ' + m.nick, m.text, 'tape-chat', '💬');
+    }
+    msgCount.current = msgs.length;
+  }, [msgs]);
+
+  const sigCount = useRef(sigs.length);
+  useEffect(() => {
+    if (sigs.length > sigCount.current && popupsRef.current && document.hidden) {
+      const s = sigs[0];
+      notify('📡 ' + s.side + ' ' + s.pair, 'Entry ' + s.entry + (s.target ? '  ·  Target ' + s.target : ''), 'tape-signal', '📡');
+    }
+    sigCount.current = sigs.length;
+  }, [sigs]);
+
+  const togglePopups = () => {
+    if (!canPopup) return;
+    if (popups) { setPopups(false); return; }
+    const done = (p) => {
+      if (p === 'granted') {
+        setPopups(true);
+        popupsRef.current = true;
+        notify('TAPE', 'Pop-outs are on. Whales and humpbacks will land here.', 'tape-hello', '🐋');
+      } else {
+        setPopups(false);
+      }
+    };
+    if (Notification.permission === 'granted') { done('granted'); return; }
+    try {
+      const r = Notification.requestPermission(done);   // older callback form
+      if (r && typeof r.then === 'function') r.then(done);
+    } catch (e) {}
+  };
+
+  const popupHint = !('Notification' in window)
+    ? 'This browser has no notification support'
+    : !window.isSecureContext
+      ? 'Pop-outs need http://localhost or https — they are blocked when the file is opened directly from disk'
+      : popups ? 'Whale and humpback pop-outs are on' : 'Allow desktop pop-outs for whales and humpbacks';
+
+  const toggleSound = () => {
+    if (sound) {
+      if (audio.current) { audio.current.close(); audio.current = null; }
+      setSound(false);
+    } else {
+      audio.current = createAudio();
+      if (audio.current) {
+        if (audio.current.ctx.state === 'suspended') audio.current.ctx.resume();
+        setSound(true);
+      }
+    }
+  };
+
+  const r = !flow.live
+    ? { cls: 'idle', text: 'AWAITING FLOW', sub: 'LISTENING TO THE TAPE' }
+    : flow.buy > BULL_PCT
+      ? { cls: 'bull', text: 'BULLISH', sub: 'BUYERS IN CONTROL — TAKERS LIFTING OFFERS' }
+      : flow.buy < BEAR_PCT
+        ? { cls: 'bear', text: 'BEARISH', sub: 'SELLERS IN CONTROL — TAKERS HITTING BIDS' }
+        : { cls: 'neut', text: 'NEUTRAL', sub: 'BALANCED FLOW — NO CLEAR AGGRESSOR' };
+
+  const statusCls = status === 'live' ? 'live' : status === 'down' ? 'down' : 'wait';
+
+  return (
+    <div className={'app' + (quake ? ' quake' : '') + (whale && whale.tier.drama === 3 ? ' big' : '')}>
+      <header>
+        <div className="brand">
+          <div className="wordmark">TAPE</div>
+          <div className="pair">BTC / USDT · BINANCE</div>
+        </div>
+
+        <nav className="tabs">
+          {[
+            { k: 'tape',    label: 'TAPE',    n: 0 },
+            { k: 'news',    label: 'NEWS',    n: Math.max(0, (news.length + notes.length) - seenNews) },
+            { k: 'chat',    label: 'CHAT',    n: Math.max(0, msgs.length - seenChat) },
+            { k: 'signals', label: 'SIGNALS', n: Math.max(0, sigs.length - seenSigs) }
+          ].map((t) => (
+            <button
+              key={t.k}
+              className={'tab' + (view === t.k ? ' on' : '')}
+              onClick={() => setView(t.k)}
+            >
+              {t.label}
+              {t.n > 0 && view !== t.k && <span className="badge">{t.n}</span>}
+            </button>
+          ))}
+        </nav>
+        <div className="hud">
+          <div className="px">
+            <span className="k">LAST</span>
+            <span className={'v ' + (dir > 0 ? 'up' : dir < 0 ? 'dn' : '')}>
+              {price === null ? '—' : '$' + px(price)}
+            </span>
+          </div>
+          <div className="status">
+            <span className={'dot ' + statusCls}></span>
+            <span>{status.toUpperCase()}</span>
+          </div>
+          <button
+            className={'snd ' + (drama ? 'on' : 'muted')}
+            onClick={toggleDrama}
+            title={drama
+              ? 'Alerts take over the screen — click to stop all pop-ups, flashes and shakes'
+              : 'Pop-ups are off — alerts only show on the ticker and the tallies'}
+          >
+            {drama ? '◱ POP-UPS ON' : '◱ POP-UPS OFF'}
+          </button>
+          <button className={'snd ' + (sound ? 'on' : 'off')} onClick={toggleSound}>
+            {sound ? '♪ SOUND ON' : '♪ SOUND OFF'}
+          </button>
+          <button
+            className={'snd ' + (popups ? 'on' : canPopup ? 'off' : 'dead')}
+            onClick={togglePopups}
+            title={popupHint}
+          >
+            {popups ? '● DESKTOP ON' : canPopup ? '○ DESKTOP OFF' : '⃠ DESKTOP N/A'}
+          </button>
+        </div>
+      </header>
+
+      {/* the tape view stays mounted so the TradingView embeds and the rolling
+          window survive a trip to chat and back */}
+      <div className={'view' + (view === 'tape' ? '' : ' off')}>
+      <main>
+        <TVWidget
+          variant="chart"
+          title="PRICE · 5M"
+          source="TRADINGVIEW"
+          src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js"
+          config={CHART_CFG}
+        />
+        <TVWidget
+          variant="tech"
+          title="TECHNICALS"
+          source="TRADINGVIEW"
+          src="https://s3.tradingview.com/external-embedding/embed-widget-technical-analysis.js"
+          config={TECH_CFG}
+        />
+      </main>
+
+      <div className="prints">
+        <div className="stream">
+          {prints.length === 0 ? (
+            <span className="empty">WATCHING FOR SIZE — NOTHING ABOVE {usd(DOLPHIN_USD)} YET</span>
+          ) : prints.map((p, i) => (
+            <span
+              key={p.id}
+              className={'pill ' + (p.buy ? 'b' : 's') + ' t-' + p.tier.key}
+              style={{ opacity: Math.max(0.28, 1 - i * 0.13) }}
+              title={p.tier.name + ' · ' + (p.buy ? 'MARKET BUY' : 'MARKET SELL') + ' · ' +
+                     p.qty.toFixed(4) + ' BTC @ $' + px(p.price)}
+            >
+              <span className="g">{p.tier.glyph}</span>
+              <span className="t">{p.tier.name}</span>
+              <span className="v">{p.buy ? '▲' : '▼'} {usd(p.usd)}</span>
+            </span>
+          ))}
+        </div>
+
+        <div className="legend">
+          <span className="lbl">TIERS</span>
+          {LADDER.map((l) => (
+            <span
+              key={l.name}
+              className={'chip' + (l.quiet ? ' quiet' : '')}
+              title={l.name + ' — single trade ' +
+                     (l.from === 0 ? 'under ' + usd(l.to)
+                                   : usd(l.from) + (l.to ? ' to ' + usd(l.to) : ' and up')) +
+                     ' · ' + l.does}
+            >
+              <b>{l.glyph}</b>{l.from === 0 ? '<' + usd(l.to) : usd(l.from) + '+'}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <section className="strip">
+        <div className="regime">
+          <div className={'verdict ' + r.cls} key={r.text}>{r.text}</div>
+          <div className="sub">{r.sub}</div>
+        </div>
+
+        <div className="flow">
+          <div className="pcts">
+            <div className="pct b">
+              <div className="lab">BUY PRESSURE</div>
+              <div className="num">{flow.buy.toFixed(1)}<small>%</small></div>
+              <div className="usd">{usd(flow.bUsd)} taker buys</div>
+            </div>
+            <div className="pct s">
+              <div className="lab">SELL PRESSURE</div>
+              <div className="num">{flow.sell.toFixed(1)}<small>%</small></div>
+              <div className="usd">{usd(flow.sUsd)} taker sells</div>
+            </div>
+          </div>
+
+          <div className="track">
+            <div className="seg b" style={{ width: flow.buy + '%' }}></div>
+            <div className="seg s" style={{ width: flow.sell + '%' }}></div>
+            <div className="mark" style={{ left: BEAR_PCT + '%' }}><span>40</span></div>
+            <div className="mark" style={{ left: BULL_PCT + '%' }}><span>60</span></div>
+          </div>
+
+          <div className="scale">
+            <span>ROLLING 60s VOLUME · {flow.n.toLocaleString()} TRADES</span>
+            <span>TOTAL {usd(flow.bUsd + flow.sUsd)}</span>
+          </div>
+        </div>
+      </section>
+
+      </div>
+
+      {view === 'news' && (
+        <NewsView
+          news={news} meta={newsMeta} fng={fng} refresh={refreshNews}
+          isAdmin={isAdmin} notes={notes} setNotes={setNotes}
+          hidden={hidden} setHidden={setHidden}
+        />
+      )}
+
+      {view === 'chat' && (
+        <ChatView msgs={msgs} setMsgs={setMsgs} nick={nick} setNick={saveNick} />
+      )}
+
+      {view === 'signals' && (
+        <SignalsView sigs={sigs} setSigs={setSigs} isAdmin={isAdmin} unlock={unlock} price={price} />
+      )}
+
+      <footer>
+        <span>
+          THIS SESSION ·
+          {LADDER.filter((l) => !l.quiet).map((l) => (
+            <span key={l.name} className="tally" title={l.name + ' prints seen since the page loaded'}>
+              {' '}{l.glyph} {l.name} <b>{counts[l.name.toLowerCase()]}</b>
+            </span>
+          ))}
+          &nbsp;·&nbsp; ALERT AT <b>${WHALE_USD.toLocaleString('en-US')}</b>+
+        </span>
+        <span>BULLISH &gt; 60% &nbsp;·&nbsp; BEARISH &lt; 40% &nbsp;·&nbsp; LIVE TAKER FLOW, NOT ADVICE</span>
+      </footer>
+
+      {edge && (
+        <div className={'edge ' + (edge.buy ? 'b' : 's') + ' ' + edge.tier.key} key={'e' + edge.id}></div>
+      )}
+
+      {whale && (
+        <div
+          className={'flash ' + (whale.buy ? 'b' : 's') +
+                     (whale.tier.drama === 3 ? ' big' : whale.tier.drama < 2 ? ' sm' : '')}
+          key={'f' + whale.id}
+        ></div>
+      )}
+
+      {whale && whale.tier.drama === 3 && (
+        <div className="rings" key={'r' + whale.id}>
+          <span className={'ring ' + (whale.buy ? 'b' : 's')}></span>
+          <span className={'ring d2 ' + (whale.buy ? 'b' : 's')}></span>
+          <span className={'ring d3 ' + (whale.buy ? 'b' : 's')}></span>
+        </div>
+      )}
+
+      {whale && (
+        <div
+          className={'whale ' + (whale.buy ? 'b' : 's') +
+                     (whale.tier.drama === 3 ? ' big' : whale.tier.drama < 2 ? ' sm' : '')}
+          key={'w' + whale.id}
+        >
+          <div className="glyph">{whale.tier.glyph}</div>
+          <div className="tag">{whale.tier.name} DETECTED</div>
+          <div className="side">{whale.buy ? 'MARKET BUY' : 'MARKET SELL'}</div>
+          <div className="amt">{usd(whale.usd)}</div>
+          <div className="meta">{whale.qty.toFixed(3)} BTC @ ${px(whale.price)}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

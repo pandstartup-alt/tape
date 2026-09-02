@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TAPE — Admin</title>
+<meta name="robots" content="noindex, nofollow" />
+<meta name="theme-color" content="#06070a" />
+<meta name="color-scheme" content="dark" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2306070a'/%3E%3Crect x='8' y='28' width='48' height='8' rx='4' fill='%23ffb020'/%3E%3C/svg%3E" />
+<style>
+  :root{
+    --bg:#06070a; --panel:#0c0e14; --line:#1b1f2b; --txt:#e9edf5; --dim:#6a7488;
+    --buy:#00e58f; --sell:#ff3b5c; --neutral:#ffb020;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Mono","Roboto Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--txt);font-family:var(--mono);min-height:100vh;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1180px;margin:0 auto;padding:24px 20px 60px}
+  header{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:22px}
+  .brand{display:flex;align-items:baseline;gap:12px}
+  .wordmark{font-size:24px;font-weight:800;letter-spacing:.4em;color:var(--txt)}
+  .tagline{font-size:10px;letter-spacing:.3em;color:var(--neutral);border:1px solid rgba(255,176,32,.4);
+    background:rgba(255,176,32,.07);border-radius:5px;padding:4px 9px}
+  .who{font-size:10px;letter-spacing:.16em;color:var(--dim)}
+  .tabs{display:flex;gap:4px;margin:0 0 18px}
+  .tab{font-family:var(--mono);font-size:10px;letter-spacing:.22em;cursor:pointer;background:transparent;
+    border:1px solid transparent;border-radius:5px;padding:8px 14px;color:#5a6274;transition:.2s}
+  .tab:hover{color:var(--txt)}
+  .tab.on{color:var(--txt);border-color:var(--line);background:var(--panel)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-bottom:16px;overflow:hidden}
+  .chead{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 14px;
+    border-bottom:1px solid var(--line);font-size:10px;letter-spacing:.22em;color:var(--dim)}
+  .body{padding:16px}
+  .row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+  .row + .row{margin-top:9px}
+  .inp{flex:1 1 150px;min-width:0;background:#0a0c11;border:1px solid var(--line);border-radius:6px;padding:10px 12px;
+    color:var(--txt);font-family:var(--mono);font-size:12px;outline:none}
+  .inp:focus{border-color:#2c3242}
+  .inp::placeholder{color:#3d4354}
+  .btn{cursor:pointer;border-radius:6px;padding:10px 16px;background:rgba(0,229,143,.1);border:1px solid rgba(0,229,143,.4);
+    color:var(--buy);font-family:var(--mono);font-size:10px;letter-spacing:.2em;transition:.2s;white-space:nowrap}
+  .btn:hover{background:rgba(0,229,143,.2)}
+  .btn:disabled{opacity:.45;cursor:default}
+  .btn.ghost{background:transparent;border-color:var(--line);color:var(--dim)}
+  .btn.ghost:hover{color:var(--txt);border-color:#2c3242}
+  .btn.sm{padding:6px 10px;font-size:9px;letter-spacing:.14em}
+  .btn.del{border-color:rgba(255,59,92,.3);color:rgba(255,59,92,.75)}
+  .btn.del:hover{color:var(--sell);border-color:rgba(255,59,92,.6)}
+  .btn.del.armed{background:rgba(255,59,92,.16);border-color:var(--sell);color:var(--sell)}
+  .seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;flex:0 0 auto}
+  .seg button{background:transparent;border:0;cursor:pointer;color:#5a6274;font-family:var(--mono);
+    font-size:10px;letter-spacing:.18em;padding:10px 16px}
+  .seg button.on.long{background:rgba(0,229,143,.14);color:var(--buy)}
+  .seg button.on.short{background:rgba(255,59,92,.14);color:var(--sell)}
+  .sig{background:#0a0c11;border:1px solid var(--line);border-radius:9px;padding:13px 15px;margin-bottom:9px}
+  .sig.long{border-left:3px solid var(--buy)} .sig.short{border-left:3px solid var(--sell)}
+  .sig .top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .sig .side{font-size:14px;font-weight:800;letter-spacing:.14em}
+  .sig.long .side{color:var(--buy)} .sig.short .side{color:var(--sell)}
+  .sig .pairtag{font-size:10px;letter-spacing:.16em;color:var(--dim);border:1px solid var(--line);border-radius:4px;padding:3px 7px}
+  .sig .st{margin-left:auto;font-size:9px;letter-spacing:.18em;color:var(--dim);border:1px solid var(--line);border-radius:4px;padding:3px 8px}
+  .levels{display:flex;gap:20px;margin-top:10px;flex-wrap:wrap}
+  .lvl{display:flex;flex-direction:column;gap:3px}
+  .lvl .k{font-size:9px;letter-spacing:.18em;color:#4a5162}
+  .lvl .v{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}
+  .sig .note{margin-top:9px;font-size:11px;color:var(--dim);line-height:1.6}
+  .acts{display:flex;gap:6px;margin-top:11px;flex-wrap:wrap}
+  table{width:100%;border-collapse:collapse;font-size:11px}
+  th{text-align:left;font-size:9px;letter-spacing:.2em;color:#4a5162;font-weight:400;padding:8px 10px;border-bottom:1px solid var(--line)}
+  td{padding:9px 10px;border-bottom:1px solid rgba(27,31,43,.6);color:var(--dim)}
+  td.em{color:var(--txt)}
+  .yes{color:var(--buy)} .no{color:#4a5162}
+  .newsitem{background:#0a0c11;border:1px solid var(--line);border-radius:8px;padding:11px 13px;margin-bottom:8px;
+    display:flex;gap:12px;align-items:flex-start}
+  .newsitem .t{flex:1 1 auto;font-size:12px;line-height:1.6;color:var(--neutral)}
+  .newsitem .w{font-size:9px;color:#3d4354;white-space:nowrap}
+  .err{color:var(--sell);font-size:10px;letter-spacing:.1em;margin-top:9px;line-height:1.7}
+  .okmsg{color:var(--buy);font-size:10px;letter-spacing:.1em;margin-top:9px;line-height:1.7}
+  .login{max-width:420px;margin:12vh auto 0}
+  .hint{font-size:10px;color:#4a5162;line-height:1.9;letter-spacing:.06em}
+  .stat{display:flex;gap:26px;flex-wrap:wrap}
+  .stat div{display:flex;flex-direction:column;gap:4px}
+  .stat .k{font-size:9px;letter-spacing:.2em;color:#4a5162}
+  .stat .v{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.4/babel.min.js"></script>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useCallback } = React;
+
+const TOKEN_KEY = 'tape.token';
+const getToken = () => { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } };
+const setToken = (t) => { try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch (e) {} };
+
+async function api(path, { method = 'GET', body } = {}) {
+  const res = await fetch('/api' + path, {
+    method,
+    headers: Object.assign({ 'Content-Type': 'application/json' },
+      getToken() ? { Authorization: 'Bearer ' + getToken() } : {}),
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || ('Request failed (' + res.status + ')'));
+  return json;
+}
+
+const ago = (ts) => {
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+};
+const idr = (n) => 'Rp ' + Number(n || 0).toLocaleString('id-ID');
+const BLANK = { side: 'LONG', pair: 'BTC/USDT', entry: '', target: '', stop: '', note: '' };
+
+function Login({ onIn }) {
+  const [email, setEmail] = useState('');
+  const [pass, setPass] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const go = async () => {
+    setErr(''); setBusy(true);
+    try {
+      const r = await api('/login', { method: 'POST', body: { email, password: pass } });
+      if (r.user.role !== 'admin') throw new Error('That account is not an admin');
+      setToken(r.token);
+      onIn(r.user);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="wrap"><div className="login">
+      <div className="card">
+        <div className="chead"><span>ADMIN SIGN IN</span></div>
+        <div className="body">
+          <div className="row"><input className="inp" type="email" placeholder="admin email" value={email}
+            onChange={(e) => setEmail(e.target.value)} autoComplete="email" /></div>
+          <div className="row"><input className="inp" type="password" placeholder="password" value={pass}
+            onChange={(e) => setPass(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') go(); }}
+            autoComplete="current-password" /></div>
+          <div className="row"><button className="btn" onClick={go} disabled={busy}>SIGN IN</button></div>
+          {err && <div className="err">{err}</div>}
+          <div className="hint" style={{ marginTop: 14 }}>
+            Admin rights come from ADMIN_EMAIL in the server .env — register that
+            address on the public site first, then restart the server once.
+          </div>
+        </div>
+      </div>
+    </div></div>
+  );
+}
+
+function App() {
+  const [user, setUser] = useState(null);
+  const [ready, setReady] = useState(false);
+  const [tab, setTab] = useState('signals');
+  const [signals, setSignals] = useState([]);
+  const [news, setNews] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [form, setForm] = useState(BLANK);
+  const [note, setNote] = useState('');
+  const [grant, setGrant] = useState({ email: '', days: '30' });
+  const [err, setErr] = useState('');
+  const [msg, setMsg] = useState('');
+  const [armed, setArmed] = useState(null);
+  const [price, setPrice] = useState(null);
+
+  useEffect(() => {
+    if (!getToken()) { setReady(true); return; }
+    api('/me').then((r) => { if (r.user.role === 'admin') setUser(r.user); })
+      .catch(() => {}).finally(() => setReady(true));
+  }, []);
+
+  const loadContent = useCallback(() => {
+    api('/content').then((r) => { setSignals(r.signals || []); setNews(r.news || []); }).catch(() => {});
+  }, []);
+  const loadUsers = useCallback(() => {
+    api('/admin/users').then((r) => { setUsers(r.users || []); setOrders(r.orders || []); }).catch(() => {});
+  }, []);
+
+  useEffect(() => { if (user) { loadContent(); loadUsers(); } }, [user, loadContent, loadUsers]);
+
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(null), 4000);
+    return () => clearTimeout(t);
+  }, [armed]);
+
+  /* live price, so the entry field can be filled from the tape */
+  useEffect(() => {
+    if (!user) return;
+    const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+    const ws = new WebSocket(proto + location.host + '/live?token=' + encodeURIComponent(getToken()));
+    ws.onmessage = (ev) => {
+      let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+      if (m.type === 'flow' && m.price) setPrice(m.price);
+      else if (m.type === 'signal') setSignals((s) => [m.signal].concat(s));
+      else if (m.type === 'signal-update') setSignals((s) => s.map((x) => (x.id === m.signal.id ? m.signal : x)));
+      else if (m.type === 'signal-remove') setSignals((s) => s.filter((x) => x.id !== m.id));
+      else if (m.type === 'news') setNews((n) => [m.item].concat(n));
+      else if (m.type === 'news-remove') setNews((n) => n.filter((x) => x.id !== m.id));
+    };
+    return () => { try { ws.close(); } catch (e) {} };
+  }, [user]);
+
+  const set = (k, v) => setForm((f) => Object.assign({}, f, { [k]: v }));
+  const flash = (m) => { setMsg(m); setTimeout(() => setMsg(''), 2500); };
+
+  const publish = async () => {
+    setErr('');
+    try {
+      await api('/signals', { method: 'POST', body: form });
+      setForm(Object.assign({}, BLANK, { side: form.side, pair: form.pair }));
+      flash('Signal published to every connected viewer.');
+    } catch (e) { setErr(e.message); }
+  };
+
+  const mark = async (id, status) => {
+    try { await api('/signals/' + id, { method: 'PATCH', body: { status } }); } catch (e) { setErr(e.message); }
+  };
+  const removeSig = async (id) => {
+    try { await api('/signals/' + id, { method: 'DELETE' }); setArmed(null); } catch (e) { setErr(e.message); }
+  };
+  const broadcastNote = async () => {
+    const text = note.trim();
+    if (!text) return;
+    setErr('');
+    try { await api('/news', { method: 'POST', body: { text } }); setNote(''); flash('Posted to the news channel.'); }
+    catch (e) { setErr(e.message); }
+  };
+  const removeNote = async (id) => {
+    try { await api('/news/' + id, { method: 'DELETE' }); setArmed(null); } catch (e) { setErr(e.message); }
+  };
+  const doGrant = async () => {
+    setErr('');
+    try {
+      await api('/admin/grant', { method: 'POST', body: { email: grant.email, days: parseInt(grant.days, 10) } });
+      setGrant({ email: '', days: '30' });
+      loadUsers();
+      flash('Access granted.');
+    } catch (e) { setErr(e.message); }
+  };
+
+  if (!ready) return <div className="wrap"><div className="hint">Loading…</div></div>;
+  if (!user) return <Login onIn={setUser} />;
+
+  const paidCount = users.filter((u) => u.paid).length;
+  const revenue = orders.filter((o) => o.status === 'paid').reduce((a, o) => a + (o.amount || 0), 0);
+
+  return (
+    <div className="wrap">
+      <header>
+        <div className="brand">
+          <span className="wordmark">TAPE</span>
+          <span className="tagline">ADMIN</span>
+        </div>
+        <div className="row">
+          <span className="who">{user.email}</span>
+          <a className="btn ghost sm" href="/" target="_blank" rel="noopener">OPEN PUBLIC SITE</a>
+          <button className="btn ghost sm" onClick={() => { setToken(''); location.reload(); }}>SIGN OUT</button>
+        </div>
+      </header>
+
+      <div className="tabs">
+        {['signals', 'news', 'members'].map((k) => (
+          <button key={k} className={'tab' + (tab === k ? ' on' : '')} onClick={() => setTab(k)}>{k.toUpperCase()}</button>
+        ))}
+      </div>
+
+      {err && <div className="err">{err}</div>}
+      {msg && <div className="okmsg">{msg}</div>}
+
+      {tab === 'signals' && (
+        <div>
+          <div className="card">
+            <div className="chead"><span>PUBLISH A SIGNAL</span><span>GOES OUT LIVE TO EVERY VIEWER</span></div>
+            <div className="body">
+              <div className="row">
+                <div className="seg">
+                  <button className={'long' + (form.side === 'LONG' ? ' on' : '')} onClick={() => set('side', 'LONG')}>LONG</button>
+                  <button className={'short' + (form.side === 'SHORT' ? ' on' : '')} onClick={() => set('side', 'SHORT')}>SHORT</button>
+                </div>
+                <input className="inp" placeholder="pair" value={form.pair} onChange={(e) => set('pair', e.target.value)} />
+                <input className="inp" placeholder={price ? 'entry (' + price.toFixed(2) + ')' : 'entry'}
+                  value={form.entry} onChange={(e) => set('entry', e.target.value)} />
+                <input className="inp" placeholder="target" value={form.target} onChange={(e) => set('target', e.target.value)} />
+                <input className="inp" placeholder="stop" value={form.stop} onChange={(e) => set('stop', e.target.value)} />
+              </div>
+              <div className="row">
+                <input className="inp" placeholder="reasoning (optional)" value={form.note}
+                  onChange={(e) => set('note', e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') publish(); }} />
+                {price && !form.entry && (
+                  <button className="btn ghost" onClick={() => set('entry', price.toFixed(2))}>USE LAST {price.toFixed(2)}</button>
+                )}
+                <button className="btn" onClick={publish}>PUBLISH</button>
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="chead"><span>PUBLISHED</span><span>{signals.length} TOTAL</span></div>
+            <div className="body">
+              {signals.length === 0 ? <div className="hint">Nothing published yet.</div> : signals.map((s) => (
+                <div className={'sig ' + String(s.side).toLowerCase()} key={s.id}>
+                  <div className="top">
+                    <span className="side">{s.side}</span>
+                    <span className="pairtag">{s.pair}</span>
+                    <span className="st">{s.status}</span>
+                  </div>
+                  <div className="levels">
+                    <div className="lvl"><span className="k">ENTRY</span><span className="v">{s.entry}</span></div>
+                    {s.target && <div className="lvl"><span className="k">TARGET</span><span className="v" style={{ color: 'var(--buy)' }}>{s.target}</span></div>}
+                    {s.stop && <div className="lvl"><span className="k">STOP</span><span className="v" style={{ color: 'var(--sell)' }}>{s.stop}</span></div>}
+                  </div>
+                  {s.note && <div className="note">{s.note}</div>}
+                  <div className="acts">
+                    {s.status === 'OPEN' && <button className="btn ghost sm" onClick={() => mark(s.id, 'TARGET HIT')}>TARGET HIT</button>}
+                    {s.status === 'OPEN' && <button className="btn ghost sm" onClick={() => mark(s.id, 'STOPPED')}>STOPPED</button>}
+                    {s.status === 'OPEN' && <button className="btn ghost sm" onClick={() => mark(s.id, 'CLOSED')}>CLOSE</button>}
+                    <button className={'btn ghost sm del' + (armed === s.id ? ' armed' : '')}
+                      onClick={() => (armed === s.id ? removeSig(s.id) : setArmed(s.id))}>
+                      {armed === s.id ? 'CONFIRM DELETE' : 'DELETE'}
+                    </button>
+                    <span className="who" style={{ marginLeft: 'auto' }}>{ago(s.ts)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'news' && (
+        <div>
+          <div className="card">
+            <div className="chead"><span>BROADCAST TO NEWS</span><span>NOBODY ELSE CAN POST THERE</span></div>
+            <div className="body">
+              <div className="row">
+                <input className="inp" placeholder="your note for the news channel" value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') broadcastNote(); }} />
+                <button className="btn" onClick={broadcastNote}>BROADCAST</button>
+              </div>
+              <div className="hint" style={{ marginTop: 12 }}>
+                Headlines pull in automatically from CoinDesk and Cointelegraph on the public
+                site. These notes sit alongside them, marked as coming from you.
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="chead"><span>YOUR NOTES</span><span>{news.length} POSTED</span></div>
+            <div className="body">
+              {news.length === 0 ? <div className="hint">No notes posted.</div> : news.map((n) => (
+                <div className="newsitem" key={n.id}>
+                  <span className="t">{n.text}</span>
+                  <span className="w">{ago(n.ts)}</span>
+                  <button className={'btn ghost sm del' + (armed === n.id ? ' armed' : '')}
+                    onClick={() => (armed === n.id ? removeNote(n.id) : setArmed(n.id))}>
+                    {armed === n.id ? 'CONFIRM' : 'DELETE'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'members' && (
+        <div>
+          <div className="card">
+            <div className="chead"><span>OVERVIEW</span><button className="btn ghost sm" onClick={loadUsers}>REFRESH</button></div>
+            <div className="body">
+              <div className="stat">
+                <div><span className="k">MEMBERS</span><span className="v">{users.length}</span></div>
+                <div><span className="k">PAID</span><span className="v" style={{ color: 'var(--buy)' }}>{paidCount}</span></div>
+                <div><span className="k">SETTLED REVENUE</span><span className="v">{idr(revenue)}</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="chead"><span>GRANT ACCESS BY HAND</span><span>FOR PAYMENTS TAKEN OUTSIDE THE GATEWAY</span></div>
+            <div className="body">
+              <div className="row">
+                <input className="inp" placeholder="member email" value={grant.email}
+                  onChange={(e) => setGrant(Object.assign({}, grant, { email: e.target.value }))} />
+                <input className="inp" style={{ flex: '0 0 110px' }} placeholder="days" value={grant.days}
+                  onChange={(e) => setGrant(Object.assign({}, grant, { days: e.target.value }))} />
+                <button className="btn" onClick={doGrant}>GRANT</button>
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="chead"><span>MEMBERS</span><span>{users.length}</span></div>
+            <div className="body" style={{ padding: 0, overflowX: 'auto' }}>
+              <table>
+                <thead><tr><th>EMAIL</th><th>ROLE</th><th>ALERTS</th><th>UNTIL</th><th>JOINED</th></tr></thead>
+                <tbody>
+                  {users.map((u) => (
+                    <tr key={u.id}>
+                      <td className="em">{u.email}</td>
+                      <td>{u.role}</td>
+                      <td className={u.paid ? 'yes' : 'no'}>{u.paid ? 'ACTIVE' : 'free'}</td>
+                      <td>{u.paidUntil ? new Date(u.paidUntil).toLocaleDateString() : '—'}</td>
+                      <td>{ago(u.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="chead"><span>ORDERS</span><span>NEWEST FIRST</span></div>
+            <div className="body" style={{ padding: 0, overflowX: 'auto' }}>
+              <table>
+                <thead><tr><th>ORDER</th><th>METHOD</th><th>AMOUNT</th><th>STATUS</th><th>WHEN</th></tr></thead>
+                <tbody>
+                  {orders.map((o) => (
+                    <tr key={o.id}>
+                      <td className="em">{o.orderId}</td>
+                      <td>{String(o.method).toUpperCase()}</td>
+                      <td>{idr(o.amount)}</td>
+                      <td className={o.status === 'paid' ? 'yes' : 'no'}>{o.status}</td>
+                      <td>{ago(o.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

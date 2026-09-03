@@ -1,12 +1,18 @@
-/* Midtrans Core API: QRIS and BCA virtual account.
+/* Midtrans Snap: one hosted checkout page that offers every payment method
+   enabled on the account — QRIS, bank transfer, e-wallets, cards. Charging a
+   channel directly (Core API) needs each one activated first, which is why it
+   answered "Payment channel is not activated"; Snap sidesteps that.
+
    The server key lives here and NEVER goes to the browser. Access is granted
-   only by the webhook, never by the browser saying "I paid" — a client can lie,
-   a signed Midtrans notification cannot. */
+   only by a signed Midtrans notification or a server-to-server status check —
+   never by the browser claiming it paid. */
 import crypto from 'node:crypto';
 import { createOrder, findOrder, grantAccess, save, data } from './store.js';
 
 const PROD = String(process.env.MIDTRANS_PRODUCTION || 'false') === 'true';
 const BASE = PROD ? 'https://api.midtrans.com' : 'https://api.sandbox.midtrans.com';
+const SNAP = PROD ? 'https://app.midtrans.com/snap/v1/transactions'
+                  : 'https://app.sandbox.midtrans.com/snap/v1/transactions';
 const KEY = process.env.MIDTRANS_SERVER_KEY || '';
 
 const price = () => parseInt(process.env.PLAN_PRICE_IDR || '99000', 10);
@@ -22,69 +28,52 @@ export const planInfo = () => ({
 
 const authHeader = () => 'Basic ' + Buffer.from(KEY + ':').toString('base64');
 
-async function charge(body) {
-  const res = await fetch(BASE + '/v2/charge', {
+/* Opens a Snap checkout. The customer picks the method there, so nothing has
+   to be activated per channel on our side. */
+export async function createPayment(user) {
+  if (!planInfo().configured) throw new Error('Payments are not configured on this server yet');
+
+  const orderId = 'tape-' + user.id + '-' + Date.now().toString(36);
+  const gross = price();
+  const plan = planInfo();
+
+  const res = await fetch(SNAP, {
     method: 'POST',
     headers: {
       'Accept': 'application/json',
       'Content-Type': 'application/json',
       'Authorization': authHeader()
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify({
+      transaction_details: { order_id: orderId, gross_amount: gross },
+      customer_details: { email: user.email },
+      item_details: [{ id: 'tape-alerts', price: gross, quantity: 1, name: plan.name.slice(0, 50) }],
+      credit_card: { secure: true }
+    })
   });
+
   const json = await res.json().catch(() => ({}));
-  if (!res.ok || (json.status_code && Number(json.status_code) >= 400)) {
-    throw new Error(json.status_message || ('Midtrans rejected the charge (' + res.status + ')'));
+  if (!res.ok || !json.token) {
+    const why = (json.error_messages && json.error_messages.join('; ')) || json.status_message;
+    throw new Error(why || ('Midtrans rejected the request (' + res.status + ')'));
   }
-  return json;
-}
-
-/* method: 'qris' | 'bca' */
-export async function createPayment(user, method) {
-  if (!planInfo().configured) throw new Error('Payments are not configured on this server yet');
-
-  const orderId = 'tape-' + user.id + '-' + Date.now().toString(36);
-  const gross = price();
-
-  const body = method === 'bca'
-    ? {
-        payment_type: 'bank_transfer',
-        transaction_details: { order_id: orderId, gross_amount: gross },
-        bank_transfer: { bank: 'bca' },
-        customer_details: { email: user.email }
-      }
-    : {
-        payment_type: 'qris',
-        transaction_details: { order_id: orderId, gross_amount: gross },
-        qris: { acquirer: 'gopay' },
-        customer_details: { email: user.email }
-      };
-
-  const res = await charge(body);
 
   createOrder({
     orderId,
     userId: user.id,
-    method,
+    method: 'snap',
     amount: gross,
     days: days(),
     status: 'pending',
-    raw: { transaction_id: res.transaction_id }
+    raw: { token: json.token }
   });
-
-  // QRIS returns a QR image URL in actions[]; BCA returns a VA number.
-  const qr = (res.actions || []).find((a) => a.name === 'generate-qr-code');
-  const va = (res.va_numbers || [])[0];
 
   return {
     orderId,
-    method,
     amountIdr: gross,
     days: days(),
-    expiry: res.expiry_time || null,
-    qrUrl: qr ? qr.url : null,
-    vaBank: va ? String(va.bank).toUpperCase() : null,
-    vaNumber: va ? va.va_number : null
+    redirectUrl: json.redirect_url,
+    token: json.token
   };
 }
 

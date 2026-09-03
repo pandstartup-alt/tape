@@ -60,8 +60,7 @@ app.get('/api/plan', (_req, res) => ok(res, { plan: pay.planInfo() }));
 
 app.post('/api/payments/create', requireUser, async (req, res) => {
   try {
-    const method = req.body.method === 'bca' ? 'bca' : 'qris';
-    ok(res, { payment: await pay.createPayment(req.user, method) });
+    ok(res, { payment: await pay.createPayment(req.user) });
   } catch (e) { bad(res, 400, e.message); }
 });
 

@@ -590,11 +590,12 @@ function AccountView({ user, plan, onAuth, onLogout, refreshMe }) {
     setBusy(false);
   };
 
-  const buy = async (method) => {
+  const buy = async () => {
     setErr(''); setMsg(''); setBusy(true);
     try {
-      const r = await api('/payments/create', { method: 'POST', body: { method } });
+      const r = await api('/payments/create', { method: 'POST' });
       setPayment(r.payment);
+      if (r.payment.redirectUrl) window.open(r.payment.redirectUrl, '_blank', 'noopener');
     } catch (e) { setErr(e.message); }
     setBusy(false);
   };
@@ -667,30 +668,17 @@ function AccountView({ user, plan, onAuth, onLogout, refreshMe }) {
             <div className="err">Payments are not switched on for this server yet.</div>
           ) : !payment ? (
             <div className="row">
-              <button className="btn" onClick={() => buy('qris')} disabled={busy}>PAY WITH QRIS</button>
-              <button className="btn ghost" onClick={() => buy('bca')} disabled={busy}>BCA TRANSFER</button>
+              <button className="btn" onClick={buy} disabled={busy}>PAY {idr(plan.priceIdr)}</button>
             </div>
           ) : (
             <div>
-              {payment.qrUrl && (
-                <div className="qrbox">
-                  <img src={payment.qrUrl} alt="QRIS payment code" />
-                </div>
-              )}
-              {payment.vaNumber && (
-                <div style={{ textAlign: 'center', padding: '10px 0' }}>
-                  <div style={{ fontSize: 10, letterSpacing: '.2em', color: 'var(--dim)', marginBottom: 8 }}>
-                    {payment.vaBank} VIRTUAL ACCOUNT
-                  </div>
-                  <div className="va">{payment.vaNumber}</div>
-                </div>
-              )}
-              <p style={{ marginTop: 14 }}>
-                Pay {idr(payment.amountIdr)} with any QRIS app (GoPay, OVO, DANA, ShopeePay, mobile banking).
-                Access switches on by itself the moment the payment settles.
+              <p style={{ marginTop: 4 }}>
+                A Midtrans checkout page opened in a new tab — QRIS, bank transfer and
+                e-wallets are all offered there. If it did not open, use the link below.
               </p>
               <div className="row">
-                <button className="btn" onClick={check} disabled={busy}>I HAVE PAID — CHECK</button>
+                <a className="btn" href={payment.redirectUrl} target="_blank" rel="noopener noreferrer">OPEN CHECKOUT</a>
+                <button className="btn ghost" onClick={check} disabled={busy}>I HAVE PAID — CHECK</button>
                 <button className="btn ghost" onClick={() => setPayment(null)}>CANCEL</button>
               </div>
             </div>

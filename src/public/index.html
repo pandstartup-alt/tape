@@ -1,0 +1,1382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TAPE — Live Bitcoin Order Flow</title>
+<meta name="description" content="Live Bitcoin order flow from Binance: rolling one-minute buy vs sell pressure, whale trade alerts, TradingView technicals and a BTC news channel." />
+<meta name="theme-color" content="#06070a" />
+<meta name="color-scheme" content="dark" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="TAPE — Live Bitcoin Order Flow" />
+<meta property="og:description" content="Rolling 1-minute buy vs sell pressure, whale alerts, TradingView technicals and a live BTC news channel." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2306070a'/%3E%3Crect x='8' y='28' width='30' height='8' rx='4' fill='%2300e58f'/%3E%3Crect x='38' y='28' width='18' height='8' rx='4' fill='%23ff3b5c'/%3E%3C/svg%3E" />
+<style>
+  :root{
+    --bg:#06070a; --panel:#0c0e14; --line:#1b1f2b; --txt:#e9edf5; --dim:#6a7488;
+    --buy:#00e58f; --sell:#ff3b5c; --neutral:#ffb020;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Mono","Roboto Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body,#root{height:100%}
+  body{background:var(--bg);color:var(--txt);font-family:var(--mono);overflow:hidden;-webkit-font-smoothing:antialiased}
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+    background:radial-gradient(900px 500px at 50% -10%,rgba(0,229,143,.06),transparent 70%),
+               radial-gradient(700px 400px at 50% 110%,rgba(255,59,92,.05),transparent 70%),
+               repeating-linear-gradient(to bottom,rgba(255,255,255,.014) 0 1px,transparent 1px 3px)}
+  .app{position:relative;z-index:1;height:100%;display:flex;flex-direction:column;padding:20px 24px 16px}
+  .app.quake{animation:quake .4s cubic-bezier(.36,.07,.19,.97)}
+  @keyframes quake{22%{transform:translate(-3px,2px)}48%{transform:translate(4px,-2px)}72%{transform:translate(-2px,1px)}100%{transform:none}}
+  .app.quake.big{animation:quakebig 1.1s cubic-bezier(.36,.07,.19,.97)}
+  @keyframes quakebig{5%{transform:translate(-16px,8px) rotate(-.6deg)}12%{transform:translate(17px,-10px) rotate(.6deg)}
+    20%{transform:translate(-15px,7px) rotate(-.5deg)}29%{transform:translate(13px,9px) rotate(.45deg)}
+    39%{transform:translate(-11px,-7px)}50%{transform:translate(9px,5px)}61%{transform:translate(-7px,4px)}
+    72%{transform:translate(5px,-3px)}83%{transform:translate(-3px,2px)}100%{transform:none}}
+
+  header{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;flex:0 0 auto}
+  .brand{display:flex;align-items:baseline;gap:12px}
+  .wordmark{font-size:26px;font-weight:800;letter-spacing:.42em;background:linear-gradient(180deg,#fff,#8892a6);
+    -webkit-background-clip:text;background-clip:text;color:transparent}
+  .pill-badge{font-size:10px;letter-spacing:.2em;color:var(--dim);border:1px solid var(--line);border-radius:5px;padding:4px 8px;white-space:nowrap}
+  .pill-badge.paid{color:var(--buy);border-color:rgba(0,229,143,.4);background:rgba(0,229,143,.06)}
+  .tabs{display:flex;gap:4px;margin-left:16px}
+  .tab{position:relative;font-family:var(--mono);font-size:10px;letter-spacing:.22em;cursor:pointer;background:transparent;
+    border:1px solid transparent;border-radius:5px;padding:7px 12px;color:#5a6274;transition:.2s;white-space:nowrap}
+  .tab:hover{color:var(--txt)}
+  .tab.on{color:var(--txt);border-color:var(--line);background:var(--panel)}
+  .badge{position:absolute;top:-5px;right:-6px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:var(--buy);
+    color:#04140d;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .hud{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .px{display:flex;align-items:baseline;gap:7px}
+  .px .v{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;transition:color .35s}
+  .px .v.up{color:var(--buy)} .px .v.dn{color:var(--sell)}
+  .px .k{font-size:10px;letter-spacing:.2em;color:var(--dim)}
+  .status{display:flex;align-items:center;gap:7px;font-size:10px;letter-spacing:.18em;color:var(--dim)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--dim)}
+  .dot.live{background:var(--buy);animation:ping 1.8s infinite}
+  .dot.down{background:var(--sell)} .dot.wait{background:var(--neutral)}
+  @keyframes ping{0%{box-shadow:0 0 0 0 rgba(0,229,143,.55)}70%{box-shadow:0 0 0 9px rgba(0,229,143,0)}100%{box-shadow:0 0 0 0 rgba(0,229,143,0)}}
+  .btn{cursor:pointer;border-radius:6px;padding:9px 15px;background:rgba(0,229,143,.1);border:1px solid rgba(0,229,143,.4);
+    color:var(--buy);font-family:var(--mono);font-size:10px;letter-spacing:.2em;transition:.2s;white-space:nowrap}
+  .btn:hover{background:rgba(0,229,143,.2)}
+  .btn:disabled{opacity:.45;cursor:default}
+  .btn.ghost{background:transparent;border-color:var(--line);color:var(--dim)}
+  .btn.ghost:hover{color:var(--txt);border-color:#2c3242}
+  .btn.sm{padding:6px 10px;font-size:9px}
+
+  main{flex:1 1 auto;display:grid;grid-template-columns:1fr 340px;gap:14px;min-height:0;margin-top:14px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;display:flex;flex-direction:column;min-height:0}
+  .phead{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--line);
+    font-size:10px;letter-spacing:.22em;color:var(--dim);flex:0 0 auto}
+  .phead .src{color:#3d4354;letter-spacing:.14em}
+  .tvhost{position:relative;flex:1 1 auto;min-height:0}
+  .chartbox{position:absolute;inset:0;overflow:hidden}
+  .tvmount{position:absolute;inset:0}
+  .tvmount iframe{display:block;width:100%!important;height:100%!important;border:0}
+  .srcpick{display:flex;gap:3px}
+  .srcpick button{
+    font-family:var(--mono);font-size:8px;letter-spacing:.14em;cursor:pointer;padding:4px 7px;
+    background:transparent;border:1px solid var(--line);border-radius:4px;color:#454c5d;transition:.2s;
+  }
+  .srcpick button:hover{color:var(--txt)}
+  .srcpick button.on{color:var(--buy);border-color:rgba(0,229,143,.4);background:rgba(0,229,143,.07)}
+
+  /* technicals */
+  .techbox{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:14px;padding:18px;text-align:center}
+  .techsum{font-size:clamp(24px,3.4vw,38px);font-weight:800;letter-spacing:.12em}
+  .techsum.bullish{color:var(--buy);text-shadow:0 0 34px rgba(0,229,143,.35)}
+  .techsum.bearish{color:var(--sell);text-shadow:0 0 34px rgba(255,59,92,.35)}
+  .techsum.neutral{color:var(--neutral)}
+  .techvotes{display:flex;gap:14px;font-size:9px;letter-spacing:.16em}
+  .techvotes .bull{color:var(--buy)} .techvotes .bear{color:var(--sell)} .techvotes .neu{color:var(--dim)}
+  .techrows{width:100%;max-width:280px;display:flex;flex-direction:column;gap:1px;margin-top:4px}
+  .techrow{display:flex;align-items:center;gap:10px;padding:9px 11px;background:#0a0c11;border:1px solid var(--line);border-radius:6px}
+  .techrow .k{font-size:9px;letter-spacing:.18em;color:#4a5162}
+  .techrow .v{margin-left:auto;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
+  .techrow .s{font-size:8px;letter-spacing:.12em;color:var(--dim);min-width:74px;text-align:right}
+  .techrow .s.bull{color:var(--buy)} .techrow .s.bear{color:var(--sell)}
+  .technote{font-size:8px;letter-spacing:.18em;color:#3d4354}
+
+  .strip{flex:0 0 auto;display:flex;align-items:center;gap:24px;margin-top:14px}
+  .regime{flex:0 0 auto;min-width:240px}
+  .verdict{font-size:clamp(28px,3.5vw,50px);font-weight:800;letter-spacing:.05em;line-height:1;transition:color .5s,text-shadow .5s;
+    animation:pop .45s cubic-bezier(.2,1.5,.4,1)}
+  @keyframes pop{from{transform:scale(.9);opacity:.3;filter:blur(6px)}to{transform:none;opacity:1;filter:none}}
+  .regime .sub{margin-top:8px;font-size:9px;letter-spacing:.18em;color:var(--dim);max-width:270px;line-height:1.6}
+  .bull{color:var(--buy);text-shadow:0 0 40px rgba(0,229,143,.4)}
+  .bear{color:var(--sell);text-shadow:0 0 40px rgba(255,59,92,.4)}
+  .neut{color:var(--neutral);text-shadow:0 0 34px rgba(255,176,32,.28)}
+  .idle{color:#4a5162}
+  .flow{flex:1 1 auto;min-width:0}
+  .pcts{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:9px;gap:12px}
+  .pct{display:flex;flex-direction:column;gap:4px}
+  .pct.s{align-items:flex-end}
+  .pct .lab{font-size:9px;letter-spacing:.22em;color:var(--dim)}
+  .pct .num{font-size:32px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+  .pct .num small{font-size:15px;opacity:.55;margin-left:2px}
+  .pct.b .num{color:var(--buy)} .pct.s .num{color:var(--sell)}
+  .pct .usd{font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums}
+  .track{position:relative;height:42px;border-radius:8px;overflow:hidden;background:var(--panel);border:1px solid var(--line);display:flex}
+  .seg{height:100%;transition:width .42s cubic-bezier(.22,1,.36,1)}
+  .seg.b{background:linear-gradient(90deg,rgba(0,229,143,.55),var(--buy))}
+  .seg.s{background:linear-gradient(90deg,var(--sell),rgba(255,59,92,.55))}
+  .mark{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.22);z-index:2}
+  .mark span{position:absolute;bottom:3px;transform:translateX(-50%);font-size:9px;color:#8b93a5}
+  .scale{display:flex;justify-content:space-between;margin-top:8px;font-size:9px;letter-spacing:.18em;color:#454c5d;gap:12px}
+
+  .prints{flex:0 0 auto;display:flex;align-items:center;height:32px;margin-top:12px;gap:8px;overflow:hidden}
+  .prints .locked{font-size:9px;letter-spacing:.2em;color:#4a5162;display:flex;align-items:center;gap:10px}
+  .pill{display:inline-flex;align-items:center;gap:8px;flex:0 0 auto;padding:5px 11px;border-radius:6px;white-space:nowrap;
+    font-size:10px;letter-spacing:.14em;background:var(--panel);border:1px solid var(--line);animation:slidein .4s cubic-bezier(.2,1,.3,1)}
+  @keyframes slidein{from{opacity:0;transform:translateX(-16px) scale(.94)}to{opacity:1;transform:none}}
+  .pill .t{color:var(--dim);letter-spacing:.18em}
+  .pill .v{font-weight:700;font-variant-numeric:tabular-nums}
+  .pill.b{border-color:rgba(0,229,143,.3)} .pill.b .v{color:var(--buy)}
+  .pill.s{border-color:rgba(255,59,92,.3)} .pill.s .v{color:var(--sell)}
+
+  footer{flex:0 0 auto;display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:14px;margin-top:12px;
+    border-top:1px solid var(--line);font-size:10px;letter-spacing:.18em;color:#454c5d;flex-wrap:wrap}
+  footer b{color:var(--dim)}
+
+  .page{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;margin-top:14px}
+  .page .card{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;overflow:hidden;background:var(--panel);
+    border:1px solid var(--line);border-radius:10px}
+  .empty-pane{flex:1 1 auto;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;
+    color:#3d4354;font-size:10px;letter-spacing:.22em;line-height:2}
+  .inp{flex:1 1 auto;min-width:0;background:#0a0c11;border:1px solid var(--line);border-radius:6px;padding:10px 12px;
+    color:var(--txt);font-family:var(--mono);font-size:12px;outline:none}
+  .inp:focus{border-color:#2c3242}
+  .inp::placeholder{color:#3d4354}
+  .composer{flex:0 0 auto;display:flex;gap:9px;padding:12px;border-top:1px solid var(--line)}
+  .lock{flex:0 0 auto;display:flex;gap:9px;align-items:center;padding:13px;border-top:1px solid var(--line);flex-wrap:wrap}
+  .lock .hint{font-size:9px;letter-spacing:.18em;color:#3d4354}
+
+  .msgs{flex:1 1 auto;overflow-y:auto;padding:15px 17px;display:flex;flex-direction:column;gap:10px}
+  .msg{display:flex;gap:10px;align-items:baseline;font-size:12px;line-height:1.5}
+  .msg .who{flex:0 0 auto;color:var(--buy);font-weight:700}
+  .msg .who.admin{color:var(--neutral)}
+  .msg .txt{color:var(--txt);word-break:break-word}
+  .msg .at{margin-left:auto;flex:0 0 auto;color:#3d4354;font-size:9px}
+
+  .newsbar{flex:0 0 auto;display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 14px;border-bottom:1px solid var(--line);
+    font-size:9px;letter-spacing:.18em;color:#4a5162}
+  .newsbar .fng{margin-left:auto}
+  .newsbar .fng b{font-size:12px;font-weight:800;margin:0 3px}
+  .newsfeed{flex:1 1 auto;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:9px}
+  .news{background:#0a0c11;border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+  .news.fromadmin{border-color:rgba(255,176,32,.35);background:rgba(255,176,32,.04)}
+  .nhead{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:7px}
+  .nsrc{font-size:9px;letter-spacing:.18em;color:var(--dim)}
+  .lean{font-size:8px;letter-spacing:.14em;padding:2px 6px;border-radius:3px;border:1px solid}
+  .lean.bullish{color:var(--buy);border-color:rgba(0,229,143,.35)}
+  .lean.bearish{color:var(--sell);border-color:rgba(255,59,92,.35)}
+  .lean.neutral{color:var(--neutral);border-color:rgba(255,176,32,.3)}
+  .topic{font-size:8px;letter-spacing:.12em;color:#4a5162;border:1px solid var(--line);border-radius:3px;padding:2px 6px}
+  .nwhen{margin-left:auto;font-size:9px;color:#3d4354}
+  .ntitle{display:block;font-size:13px;line-height:1.5;color:var(--txt);text-decoration:none}
+  a.ntitle:hover{color:var(--buy);text-decoration:underline}
+  .ntitle.plain{color:var(--neutral)}
+
+  .sigs{flex:1 1 auto;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+  .sig{background:#0a0c11;border:1px solid var(--line);border-radius:9px;padding:14px 16px}
+  .sig.long{border-left:3px solid var(--buy)} .sig.short{border-left:3px solid var(--sell)}
+  .sig .top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .sig .side{font-size:15px;font-weight:800;letter-spacing:.14em}
+  .sig.long .side{color:var(--buy)} .sig.short .side{color:var(--sell)}
+  .sig .pairtag{font-size:10px;letter-spacing:.16em;color:var(--dim);border:1px solid var(--line);border-radius:4px;padding:3px 7px}
+  .sig .st{margin-left:auto;font-size:9px;letter-spacing:.18em;color:var(--dim);border:1px solid var(--line);border-radius:4px;padding:3px 8px}
+  .sig .st.hit{color:var(--buy);border-color:rgba(0,229,143,.4)}
+  .sig .st.stopped{color:var(--sell);border-color:rgba(255,59,92,.4)}
+  .levels{display:flex;gap:22px;margin-top:11px;flex-wrap:wrap}
+  .lvl{display:flex;flex-direction:column;gap:3px}
+  .lvl .k{font-size:9px;letter-spacing:.18em;color:#4a5162}
+  .lvl .v{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
+  .sig .note{margin-top:10px;font-size:11px;color:var(--dim);line-height:1.6}
+  .sig .when{margin-top:8px;font-size:9px;color:#3d4354}
+
+  /* account + paywall */
+  .acct{flex:1 1 auto;overflow-y:auto;padding:22px;display:flex;flex-direction:column;gap:18px;align-items:center}
+  .box{width:100%;max-width:460px;background:#0a0c11;border:1px solid var(--line);border-radius:10px;padding:22px}
+  .box h2{font-size:13px;letter-spacing:.28em;font-weight:700;color:var(--txt);margin-bottom:6px}
+  .box p{font-size:11px;line-height:1.8;color:var(--dim);margin-bottom:14px}
+  .box .row{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:9px}
+  .box .row .inp{flex:1 1 180px}
+  .err{color:var(--sell);font-size:10px;letter-spacing:.1em;line-height:1.7;margin-top:8px}
+  .okmsg{color:var(--buy);font-size:10px;letter-spacing:.1em;line-height:1.7;margin-top:8px}
+  .price{font-size:34px;font-weight:800;color:var(--txt);letter-spacing:.02em}
+  .price small{font-size:12px;color:var(--dim);font-weight:400;letter-spacing:.18em;margin-left:8px}
+  .perks{list-style:none;margin:14px 0}
+  .perks li{font-size:11px;color:var(--dim);line-height:2.1;display:flex;gap:9px}
+  .perks li b{color:var(--txt);font-weight:600}
+  /* whale log */
+  .whalelog{flex:1 1 auto;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+  .wrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 12px;
+    background:#0a0c11;border:1px solid var(--line);border-radius:7px}
+  .wrow.b{border-left:3px solid var(--buy)}
+  .wrow.s{border-left:3px solid var(--sell)}
+  .wrow .g{font-size:14px}
+  .wrow .wside{font-size:10px;font-weight:800;letter-spacing:.16em;min-width:38px}
+  .wrow.b .wside{color:var(--buy)}
+  .wrow.s .wside{color:var(--sell)}
+  .wrow .wamt{font-size:15px;font-weight:800;font-variant-numeric:tabular-nums;min-width:78px}
+  .wrow .wqty{font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums}
+  .wrow .wat{font-size:11px;color:#4a5162;font-variant-numeric:tabular-nums}
+  .wrow .wwhen{margin-left:auto;font-size:9px;color:#3d4354}
+  /* hash-linked purchase ledger */
+  .chain{display:flex;flex-direction:column}
+  .link{position:relative;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    padding:9px 11px;background:#0a0c11;border:1px solid var(--line);border-radius:6px;margin-bottom:14px}
+  .link:not(:last-child)::after{content:"";position:absolute;left:20px;bottom:-14px;width:1px;height:14px;
+    background:linear-gradient(180deg,rgba(0,229,143,.5),rgba(0,229,143,.1))}
+  .link .idx{font-size:10px;font-weight:700;color:var(--buy);min-width:26px}
+  .link .who{font-size:11px;color:var(--txt)}
+  .link .days{font-size:9px;letter-spacing:.14em;color:var(--dim);border:1px solid var(--line);border-radius:3px;padding:2px 6px}
+  .link .when{font-size:9px;color:#3d4354}
+  .link .hash{width:100%;font-size:8.5px;letter-spacing:.06em;color:#3d4354;word-break:break-all;
+    border-top:1px solid rgba(27,31,43,.8);padding-top:6px}
+  .qrbox{display:flex;flex-direction:column;align-items:center;gap:12px;padding:16px;background:#fff;border-radius:10px}
+  .qrbox img{width:230px;height:230px;display:block}
+  .va{font-size:24px;font-weight:800;letter-spacing:.08em;color:var(--txt);font-variant-numeric:tabular-nums}
+
+  /* alerts */
+  .flash{position:fixed;inset:0;z-index:40;pointer-events:none;animation:flash .6s ease-out forwards}
+  .flash.b{background:radial-gradient(circle at 50% 50%,rgba(0,229,143,.3),rgba(0,229,143,.07) 45%,transparent 72%)}
+  .flash.s{background:radial-gradient(circle at 50% 50%,rgba(255,59,92,.3),rgba(255,59,92,.07) 45%,transparent 72%)}
+  @keyframes flash{0%{opacity:0}10%{opacity:1}35%{opacity:.45}100%{opacity:0}}
+  .flash.sm{animation-duration:.45s}
+  .flash.sm.b{background:radial-gradient(circle at 50% 50%,rgba(0,229,143,.16),transparent 62%)}
+  .flash.sm.s{background:radial-gradient(circle at 50% 50%,rgba(255,59,92,.16),transparent 62%)}
+  .flash.big{animation:flashbig 1.9s ease-out forwards}
+  .flash.big.b{background:radial-gradient(circle at 50% 50%,rgba(255,255,255,.55),rgba(0,229,143,.62) 20%,rgba(0,229,143,.16) 54%,transparent 78%)}
+  .flash.big.s{background:radial-gradient(circle at 50% 50%,rgba(255,255,255,.55),rgba(255,59,92,.62) 20%,rgba(255,59,92,.16) 54%,transparent 78%)}
+  @keyframes flashbig{0%{opacity:0}3%{opacity:1}15%{opacity:.3}24%{opacity:.95}45%{opacity:.4}100%{opacity:0}}
+  .rings{position:fixed;inset:0;z-index:45;pointer-events:none;overflow:hidden}
+  .ring{position:absolute;left:50%;top:50%;width:12px;height:12px;border-radius:50%;border:4px solid;transform:translate(-50%,-50%);
+    animation:ringout 1.7s cubic-bezier(.12,.7,.25,1) forwards}
+  .ring.d2{animation-delay:.24s} .ring.d3{animation-delay:.5s}
+  .ring.b{border-color:rgba(0,229,143,.8)} .ring.s{border-color:rgba(255,59,92,.8)}
+  @keyframes ringout{0%{width:12px;height:12px;opacity:.95;border-width:5px}100%{width:190vmax;height:190vmax;opacity:0;border-width:1px}}
+  .card-alert{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:50;width:max-content;max-width:92vw;
+    padding:28px 50px;text-align:center;border-radius:16px;background:rgba(8,10,15,.93);backdrop-filter:blur(9px);
+    animation:slam .45s cubic-bezier(.15,1.5,.4,1)}
+  @keyframes slam{0%{transform:translate(-50%,-50%) scale(1.45);opacity:0;filter:blur(6px)}
+    65%{transform:translate(-50%,-50%) scale(.99);opacity:1;filter:none}100%{transform:translate(-50%,-50%) scale(1)}}
+  .card-alert.b{border:1px solid rgba(0,229,143,.4);box-shadow:0 0 70px rgba(0,229,143,.24)}
+  .card-alert.s{border:1px solid rgba(255,59,92,.4);box-shadow:0 0 70px rgba(255,59,92,.24)}
+  .card-alert.sm{padding:20px 36px}
+  .card-alert.big{padding:44px 78px;animation:slambig .62s cubic-bezier(.15,1.5,.4,1)}
+  .card-alert.big.b{border-color:rgba(0,229,143,.85);box-shadow:0 0 260px rgba(0,229,143,.6),0 0 0 2px rgba(0,229,143,.3)}
+  .card-alert.big.s{border-color:rgba(255,59,92,.85);box-shadow:0 0 260px rgba(255,59,92,.6),0 0 0 2px rgba(255,59,92,.3)}
+  @keyframes slambig{0%{transform:translate(-50%,-50%) scale(3.4);opacity:0;filter:blur(22px)}
+    52%{transform:translate(-50%,-50%) scale(.93);opacity:1;filter:none}72%{transform:translate(-50%,-50%) scale(1.05)}
+    100%{transform:translate(-50%,-50%) scale(1)}}
+  .card-alert .glyph{font-size:28px;margin-bottom:6px}
+  .card-alert.sm .glyph{font-size:22px}
+  .card-alert.big .glyph{font-size:52px;animation:breach 1.6s ease-in-out infinite}
+  @keyframes breach{0%,100%{transform:translateY(0) rotate(-4deg)}50%{transform:translateY(-8px) rotate(4deg)}}
+  .card-alert .tag{font-size:12px;letter-spacing:.5em;color:var(--dim);margin-bottom:9px}
+  .card-alert .side{font-size:clamp(30px,5.5vw,58px);font-weight:800;letter-spacing:.1em;line-height:1}
+  .card-alert.sm .side{font-size:clamp(24px,3.6vw,38px)}
+  .card-alert.big .side{font-size:clamp(40px,7vw,76px)}
+  .card-alert.b .side{color:var(--buy)} .card-alert.s .side{color:var(--sell)}
+  .card-alert .amt{margin-top:12px;font-size:clamp(26px,5vw,50px);font-weight:800;font-variant-numeric:tabular-nums}
+  .card-alert.sm .amt{font-size:clamp(22px,3.4vw,34px)}
+  .card-alert .meta{margin-top:10px;font-size:11px;letter-spacing:.18em;color:var(--dim)}
+
+  @media (max-width:1180px){ main{grid-template-columns:1fr 290px} .regime{min-width:200px} }
+  @media (max-width:960px){
+    body{overflow-y:auto;overflow-x:hidden}
+    html,body,#root,.app{height:auto}
+    .app{min-height:100%;padding:14px 12px}
+    .wordmark{font-size:20px;letter-spacing:.3em}
+    .tabs{margin-left:0;order:3;width:100%}
+    .tab{flex:1 1 0}
+    main{grid-template-columns:1fr}
+    .panel.chart .tvhost{height:52vh;min-height:320px}
+    .panel.tech .tvhost{height:420px}
+    .tvhost{position:relative;flex:0 0 auto}
+    .strip{flex-direction:column;align-items:stretch;gap:14px}
+    .regime{min-width:0;text-align:center}
+    .page{min-height:72vh}
+    footer{flex-direction:column;text-align:center;gap:6px}
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.4/babel.min.js"></script>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef, useCallback } = React;
+
+/* ── helpers ──────────────────────────────────────────────────────────────── */
+const usd = (n) => {
+  if (!isFinite(n)) return '$0';
+  if (n >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
+  if (n >= 1e6) return '$' + (n / 1e6).toFixed(2) + 'M';
+  if (n >= 1e3) return '$' + (n / 1e3).toFixed(1) + 'K';
+  return '$' + n.toFixed(0);
+};
+const px = (n) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const idr = (n) => 'Rp ' + Number(n).toLocaleString('id-ID');
+const ago = (ts) => {
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+};
+
+const TOKEN_KEY = 'tape.token';
+const getToken = () => { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; } };
+const setToken = (t) => { try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch (e) {} };
+
+async function api(path, { method = 'GET', body } = {}) {
+  const res = await fetch('/api' + path, {
+    method,
+    headers: Object.assign(
+      { 'Content-Type': 'application/json' },
+      getToken() ? { Authorization: 'Bearer ' + getToken() } : {}
+    ),
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || ('Request failed (' + res.status + ')'));
+  return json;
+}
+
+/* News arrives over the socket now: the server pulls every feed once and
+   shares one result, instead of every visitor hitting the feeds themselves. */
+
+/* ── candlestick chart ─────────────────────────────────────────────────────
+   Drawn here from Binance candles the server supplies. TradingView's embed
+   refuses to render from this domain, so we own the whole thing instead. */
+function Chart({ candles, interval }) {
+  const box = useRef(null);
+  const [size, setSize] = useState({ w: 800, h: 360 });
+
+  useEffect(() => {
+    if (!box.current) return;
+    const ro = new ResizeObserver(([e]) => {
+      const r = e.contentRect;
+      if (r.width > 0 && r.height > 0) setSize({ w: Math.round(r.width), h: Math.round(r.height) });
+    });
+    ro.observe(box.current);
+    return () => ro.disconnect();
+  }, []);
+
+  if (!candles || candles.length < 2) {
+    return <div className="chartbox" ref={box}><div className="empty-pane">LOADING CANDLES…</div></div>;
+  }
+
+  const PAD = { l: 8, r: 62, t: 10, b: 20 };
+  const { w, h } = size;
+  const plotW = Math.max(10, w - PAD.l - PAD.r);
+  const volH = Math.round((h - PAD.t - PAD.b) * 0.18);
+  const plotH = Math.max(10, h - PAD.t - PAD.b - volH - 6);
+
+  let hi = -Infinity, lo = Infinity, maxV = 0;
+  for (const c of candles) {
+    if (c.h > hi) hi = c.h;
+    if (c.l < lo) lo = c.l;
+    if (c.v > maxV) maxV = c.v;
+  }
+  const span = hi - lo || 1;
+  hi += span * 0.04;
+  lo -= span * 0.04;
+  const range = hi - lo || 1;
+
+  const step = plotW / candles.length;
+  const bw = Math.max(1, Math.min(9, step * 0.68));
+  const y = (p) => PAD.t + (1 - (p - lo) / range) * plotH;
+  const x = (i) => PAD.l + i * step + step / 2;
+
+  // five price gridlines, rounded to something readable
+  const ticks = [];
+  for (let i = 0; i <= 4; i++) ticks.push(lo + (range * i) / 4);
+
+  const last = candles[candles.length - 1];
+  const up = last.c >= last.o;
+
+  return (
+    <div className="chartbox" ref={box}>
+      <svg width={w} height={h} style={{ display: 'block' }}>
+        {ticks.map((p, i) => (
+          <g key={i}>
+            <line x1={PAD.l} x2={PAD.l + plotW} y1={y(p)} y2={y(p)} stroke="rgba(255,255,255,.05)" />
+            <text x={PAD.l + plotW + 6} y={y(p) + 3.5} fill="#5a6274" fontSize="10">
+              {p.toLocaleString('en-US', { maximumFractionDigits: 0 })}
+            </text>
+          </g>
+        ))}
+
+        {candles.map((c, i) => {
+          const g = c.c >= c.o;
+          const col = g ? 'var(--buy)' : 'var(--sell)';
+          const vy = PAD.t + plotH + 6;
+          const vh = maxV ? (c.v / maxV) * volH : 0;
+          return (
+            <g key={c.t}>
+              <rect x={x(i) - bw / 2} y={vy + (volH - vh)} width={bw} height={Math.max(0.5, vh)}
+                    fill={col} opacity=".28" />
+              <line x1={x(i)} x2={x(i)} y1={y(c.h)} y2={y(c.l)} stroke={col} strokeWidth="1" />
+              <rect x={x(i) - bw / 2} y={Math.min(y(c.o), y(c.c))} width={bw}
+                    height={Math.max(1, Math.abs(y(c.c) - y(c.o)))} fill={col} />
+            </g>
+          );
+        })}
+
+        <line x1={PAD.l} x2={PAD.l + plotW} y1={y(last.c)} y2={y(last.c)}
+              stroke={up ? 'var(--buy)' : 'var(--sell)'} strokeWidth="1" strokeDasharray="3 3" opacity=".7" />
+        <rect x={PAD.l + plotW + 2} y={y(last.c) - 9} width={PAD.r - 6} height="18" rx="3"
+              fill={up ? 'var(--buy)' : 'var(--sell)'} />
+        <text x={PAD.l + plotW + 6} y={y(last.c) + 4} fill="#04140d" fontSize="10.5" fontWeight="700">
+          {last.c.toLocaleString('en-US', { maximumFractionDigits: 2 })}
+        </text>
+
+        <text x={PAD.l + 2} y={h - 6} fill="#454c5d" fontSize="9">
+          {candles.length} × {interval || '5m'} · BINANCE BTCUSDT
+        </text>
+      </svg>
+    </div>
+  );
+}
+
+/* TradingView embed, kept as an option. It refuses to render from
+   *.up.railway.app — most likely because that is shared free hosting — but
+   works on a proper custom domain, so the toggle stays available. */
+function TVWidget({ src, config }) {
+  const mount = useRef(null);
+  useEffect(() => {
+    const host = mount.current;
+    host.innerHTML = '';
+    const box = document.createElement('div');
+    box.className = 'tradingview-widget-container';
+    box.style.cssText = 'height:100%;width:100%';
+    const slot = document.createElement('div');
+    slot.className = 'tradingview-widget-container__widget';
+    slot.style.cssText = 'height:100%;width:100%';
+    box.appendChild(slot);
+    const s = document.createElement('script');
+    s.type = 'text/javascript';
+    s.async = true;
+    s.src = src;
+    s.innerHTML = JSON.stringify(config);
+    box.appendChild(s);
+    host.appendChild(box);
+    return () => { host.innerHTML = ''; };
+  }, [src]);
+  return <div className="chartbox"><div className="tvmount" ref={mount}></div></div>;
+}
+
+const CHART_CFG = {
+  autosize: true, symbol: 'BINANCE:BTCUSDT', interval: '5', timezone: 'Etc/UTC', theme: 'dark',
+  style: '1', locale: 'en', backgroundColor: 'rgba(12,14,20,1)', gridColor: 'rgba(255,255,255,0.05)',
+  allow_symbol_change: false, save_image: false, support_host: 'https://www.tradingview.com'
+};
+const TECH_CFG = {
+  interval: '15m', width: '100%', height: '100%', isTransparent: true, symbol: 'BINANCE:BTCUSDT',
+  showIntervalTabs: true, displayMode: 'single', locale: 'en', colorTheme: 'dark'
+};
+
+/* Indicators computed on the server from the same candles. */
+function Technicals({ tech }) {
+  if (!tech) return <div className="empty-pane">CALCULATING…</div>;
+  const cls = tech.summary.includes('BUY') ? 'bullish' : tech.summary.includes('SELL') ? 'bearish' : 'neutral';
+  const rows = [
+    ['RSI 14', tech.rsi === null ? '—' : tech.rsi.toFixed(1),
+      tech.rsi === null ? '' : tech.rsi > 70 ? 'OVERBOUGHT' : tech.rsi < 30 ? 'OVERSOLD' : tech.rsi > 55 ? 'BULLISH' : tech.rsi < 45 ? 'BEARISH' : 'NEUTRAL'],
+    ['MA 20', tech.ma20 === null ? '—' : tech.ma20.toLocaleString('en-US', { maximumFractionDigits: 0 }),
+      tech.ma20 === null ? '' : tech.price > tech.ma20 ? 'ABOVE' : 'BELOW'],
+    ['MA 50', tech.ma50 === null ? '—' : tech.ma50.toLocaleString('en-US', { maximumFractionDigits: 0 }),
+      tech.ma50 === null ? '' : tech.price > tech.ma50 ? 'ABOVE' : 'BELOW']
+  ];
+  return (
+    <div className="techbox">
+      <div className={'techsum ' + cls}>{tech.summary}</div>
+      <div className="techvotes">
+        <span className="bear">{tech.sell} SELL</span>
+        <span className="neu">{tech.neutral} NEUTRAL</span>
+        <span className="bull">{tech.buy} BUY</span>
+      </div>
+      <div className="techrows">
+        {rows.map((r) => (
+          <div className="techrow" key={r[0]}>
+            <span className="k">{r[0]}</span>
+            <span className="v">{r[1]}</span>
+            <span className={'s ' + (r[2] === 'ABOVE' || r[2] === 'BULLISH' ? 'bull'
+              : r[2] === 'BELOW' || r[2] === 'BEARISH' || r[2] === 'OVERBOUGHT' ? 'bear' : '')}>{r[2]}</span>
+          </div>
+        ))}
+      </div>
+      <div className="technote">FROM 5-MINUTE BINANCE CANDLES · NOT ADVICE</div>
+    </div>
+  );
+}
+/* ── alert sound ────────────────────────────────────────────────────────────
+   Four escalating hits sharing one signal path:
+     master → compressor → [dry + reverb] → out
+   Every tier makes a noise now, and the big ones are layered — transient click,
+   sub drop, detuned body, noise splash, alert tones, and for a humpback a riser
+   that builds before the impact lands. */
+function createAudio() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  const ctx = new AC();
+
+  const master = ctx.createGain();
+  master.gain.value = 0.95;
+
+  // stops the layers from stacking into clipping
+  const comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -14;
+  comp.knee.value = 22;
+  comp.ratio.value = 8;
+  comp.attack.value = 0.004;
+  comp.release.value = 0.22;
+
+  // a short synthetic room so hits have some tail instead of stopping dead
+  const verb = ctx.createConvolver();
+  (function buildImpulse() {
+    const len = Math.floor(ctx.sampleRate * 1.6);
+    const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      for (let i = 0; i < len; i++) {
+        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6);
+      }
+    }
+    verb.buffer = buf;
+  })();
+  const wet = ctx.createGain();
+  wet.gain.value = 0.24;
+
+  master.connect(comp);
+  comp.connect(ctx.destination);
+  comp.connect(verb);
+  verb.connect(wet);
+  wet.connect(ctx.destination);
+
+  let noiseBuf = null;
+  const noise = () => {
+    if (!noiseBuf) {
+      const len = Math.floor(ctx.sampleRate * 2);
+      noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    }
+    return noiseBuf;
+  };
+
+  const env = (node, t, peak, attack, decay) => {
+    node.gain.setValueAtTime(0.0001, t);
+    node.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + attack);
+    node.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+  };
+
+  const osc = (type, f0, f1, t, dur, peak, pan) => {
+    const o = ctx.createOscillator();
+    o.type = type;
+    o.frequency.setValueAtTime(f0, t);
+    if (f1 && f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur * 0.9);
+    const g = ctx.createGain();
+    env(g, t, peak, 0.012, dur);
+    o.connect(g);
+    if (pan && ctx.createStereoPanner) {
+      const p = ctx.createStereoPanner();
+      p.pan.value = pan;
+      g.connect(p); p.connect(master);
+    } else {
+      g.connect(master);
+    }
+    o.start(t); o.stop(t + dur + 0.05);
+    return o;
+  };
+
+  const burst = (t, dur, peak, from, to, q) => {
+    const n = ctx.createBufferSource();
+    n.buffer = noise();
+    n.loop = true;
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.Q.value = q || 1;
+    f.frequency.setValueAtTime(from, t);
+    f.frequency.exponentialRampToValueAtTime(Math.max(40, to), t + dur);
+    const g = ctx.createGain();
+    env(g, t, peak, 0.008, dur);
+    n.connect(f); f.connect(g); g.connect(master);
+    n.start(t); n.stop(t + dur + 0.05);
+  };
+
+  return {
+    ctx,
+
+    /* level 0 dolphin · 1 shark · 2 whale · 3 humpback */
+    hit(level, isBuy) {
+      if (ctx.state === 'suspended') ctx.resume();
+      const t = ctx.currentTime;
+      const dir = isBuy ? 1 : -1;
+
+      if (level === 0) {
+        // dolphin — a small tap, easy to hear a hundred times an hour
+        osc('sine', isBuy ? 880 : 620, isBuy ? 1180 : 460, t, 0.1, 0.09, dir * 0.3);
+        burst(t, 0.06, 0.03, 2600, 900, 2);
+        return;
+      }
+
+      if (level === 1) {
+        // shark — a firmer double blip
+        osc('triangle', isBuy ? 700 : 520, isBuy ? 980 : 380, t, 0.14, 0.14, dir * 0.25);
+        osc('triangle', isBuy ? 1050 : 780, isBuy ? 1400 : 560, t + 0.075, 0.13, 0.09, -dir * 0.25);
+        burst(t, 0.1, 0.06, 3400, 700, 1.6);
+        return;
+      }
+
+      const big = level === 3;
+
+      // transient click so the hit has an edge before the weight arrives
+      burst(t, big ? 0.05 : 0.035, big ? 0.5 : 0.3, 6000, 1800, 0.8);
+
+      // humpback only: a riser that builds into the impact
+      if (big) {
+        const r = ctx.createBufferSource();
+        r.buffer = noise();
+        r.loop = true;
+        const rf = ctx.createBiquadFilter();
+        rf.type = 'bandpass';
+        rf.Q.value = 3.5;
+        rf.frequency.setValueAtTime(300, t - 0.0001);
+        rf.frequency.exponentialRampToValueAtTime(7000, t + 0.62);
+        const rg = ctx.createGain();
+        rg.gain.setValueAtTime(0.0001, t);
+        rg.gain.exponentialRampToValueAtTime(0.22, t + 0.55);
+        rg.gain.exponentialRampToValueAtTime(0.0001, t + 0.72);
+        r.connect(rf); rf.connect(rg); rg.connect(master);
+        r.start(t); r.stop(t + 0.8);
+      }
+
+      const boom = big ? t + 0.6 : t;      // the humpback lands after its riser
+      const tail = big ? 2.6 : 1.15;
+
+      // sub drop — the weight
+      osc('sine', (isBuy ? 190 : 150) * (big ? 0.62 : 1),
+                  (isBuy ? 52 : 34) * (big ? 0.55 : 1), boom, tail, big ? 1.0 : 0.5, 0);
+
+      // detuned body, two saws slightly apart for thickness
+      osc('sawtooth', isBuy ? 116 : 92, isBuy ? 58 : 44, boom, tail * 0.7, big ? 0.24 : 0.12, -0.35);
+      osc('sawtooth', isBuy ? 119 : 95, isBuy ? 59 : 45, boom, tail * 0.7, big ? 0.24 : 0.12, 0.35);
+
+      // splash
+      burst(boom, big ? 1.0 : 0.5, big ? 0.34 : 0.16, 3200, 220, 0.7);
+
+      // alert tones — three notes for a humpback, two for a whale
+      const tones = big
+        ? (isBuy ? [784, 1175, 1568] : [622, 415, 311])
+        : (isBuy ? [784, 1175] : [622, 415]);
+      tones.forEach((f, i) => {
+        const off = boom + i * (big ? 0.2 : 0.16);
+        osc('square', f, f, off, big ? 0.42 : 0.28, big ? 0.2 : 0.1, (i % 2 ? 0.4 : -0.4));
+        osc('sine', f * 2, f * 2, off, big ? 0.3 : 0.2, big ? 0.07 : 0.035, (i % 2 ? -0.4 : 0.4));
+      });
+
+      // humpback afterglow — a slow swell under the tail
+      if (big) {
+        osc('triangle', isBuy ? 82 : 62, isBuy ? 41 : 31, boom + 0.1, 2.2, 0.16, 0);
+      }
+    },
+
+    close() { try { ctx.close(); } catch (e) {} }
+  };
+}
+
+/* ── account / paywall ────────────────────────────────────────────────────── */
+function AccountView({ user, plan, onAuth, onLogout, refreshMe, feed, stats }) {
+  const [mode, setMode] = useState('login');
+  const [email, setEmail] = useState('');
+  const [pass, setPass] = useState('');
+  const [err, setErr] = useState('');
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [payment, setPayment] = useState(null);
+  const [pw, setPw] = useState({ open: false, current: '', next: '' });
+  const [pwMsg, setPwMsg] = useState(null);
+
+  const changePw = async () => {
+    setPwMsg(null); setBusy(true);
+    try {
+      await api('/password', { method: 'POST', body: { current: pw.current, next: pw.next } });
+      setPw({ open: false, current: '', next: '' });
+      setPwMsg({ ok: true, text: 'Password changed.' });
+    } catch (e) { setPwMsg({ ok: false, text: e.message }); }
+    setBusy(false);
+  };
+
+  const submit = async () => {
+    setErr(''); setBusy(true);
+    try {
+      const r = await api(mode === 'login' ? '/login' : '/register', { method: 'POST', body: { email, password: pass } });
+      setToken(r.token);
+      onAuth(r.user);
+      setPass('');
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  const buy = async () => {
+    setErr(''); setMsg(''); setBusy(true);
+    try {
+      const r = await api('/payments/create', { method: 'POST' });
+      setPayment(r.payment);
+      if (r.payment.redirectUrl) window.open(r.payment.redirectUrl, '_blank', 'noopener');
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  const check = async () => {
+    setErr(''); setMsg(''); setBusy(true);
+    try {
+      const r = await api('/payments/sync', { method: 'POST', body: { orderId: payment.orderId } });
+      if (r.granted) { setMsg('Payment confirmed — alerts are on.'); setPayment(null); refreshMe(); }
+      else setMsg('Not settled yet (' + (r.status || 'pending') + '). Give it a moment and check again.');
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  if (!user) {
+    return (
+      <div className="page"><div className="card"><div className="acct">
+        <div className="box">
+          <h2>{mode === 'login' ? 'SIGN IN' : 'CREATE ACCOUNT'}</h2>
+          <p>The live tape and the news channel are free and need no account. An account is only needed to unlock size alerts.</p>
+          <div className="row">
+            <input className="inp" type="email" placeholder="email" value={email}
+              onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+          </div>
+          <div className="row">
+            <input className="inp" type="password" placeholder="password (min 8 characters)" value={pass}
+              onChange={(e) => setPass(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'} />
+          </div>
+          <div className="row">
+            <button className="btn" onClick={submit} disabled={busy}>{mode === 'login' ? 'SIGN IN' : 'CREATE ACCOUNT'}</button>
+            <button className="btn ghost" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setErr(''); }}>
+              {mode === 'login' ? 'NEED AN ACCOUNT' : 'I HAVE AN ACCOUNT'}
+            </button>
+          </div>
+          {err && <div className="err">{err}</div>}
+        </div>
+      </div></div></div>
+    );
+  }
+
+  return (
+    <div className="page"><div className="card"><div className="acct">
+      <div className="box">
+        <h2>ACCOUNT</h2>
+        <p>{user.email}<br />
+          {user.role === 'admin'
+            ? 'Admin — alerts always on.'
+            : user.paid
+              ? 'Alerts active until ' + new Date(user.paidUntil).toLocaleString()
+              : 'Free tier — live tape and news only.'}
+        </p>
+        <div className="row">
+          <button className="btn ghost" onClick={onLogout}>SIGN OUT</button>
+          <button className="btn ghost" onClick={() => { setPw({ open: !pw.open, current: '', next: '' }); setPwMsg(null); }}>
+            {pw.open ? 'CANCEL' : 'CHANGE PASSWORD'}
+          </button>
+        </div>
+        {pw.open && (
+          <div style={{ marginTop: 12 }}>
+            <div className="row">
+              <input className="inp" type="password" placeholder="current password" value={pw.current}
+                onChange={(e) => setPw(Object.assign({}, pw, { current: e.target.value }))} />
+            </div>
+            <div className="row">
+              <input className="inp" type="password" placeholder="new password (min 8)" value={pw.next}
+                onChange={(e) => setPw(Object.assign({}, pw, { next: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === 'Enter') changePw(); }} />
+              <button className="btn" onClick={changePw} disabled={busy}>SAVE</button>
+            </div>
+            {pwMsg && <div className={pwMsg.ok ? 'okmsg' : 'err'}>{pwMsg.text}</div>}
+          </div>
+        )}
+      </div>
+
+      {!user.paid && (
+        <div className="box">
+          <h2>UNLOCK SIZE ALERTS</h2>
+          <div className="price">{idr(plan.priceIdr)}<small>/ {plan.days} DAYS</small></div>
+          <ul className="perks">
+            <li><b>🐬 🦈 🐳 🐋</b> every size alert, dolphin through humpback</li>
+            <li><b>Pop-ups</b> full-screen alert cards, graded by trade size</li>
+            <li><b>Sound</b> layered alerts you can hear from another room</li>
+            <li><b>Whale log</b> every $100k+ print kept, so you can review the day</li>
+            <li><b>Live ticker</b> of every large trade as it crosses</li>
+          </ul>
+          {stats && stats.settled > 0 && (
+            <p>
+              Signal track record: <b style={{ color: 'var(--txt)' }}>{stats.total} posted</b>,{' '}
+              <b style={{ color: 'var(--buy)' }}>{stats.hits} hit target</b>,{' '}
+              <b style={{ color: 'var(--sell)' }}>{stats.stops} stopped</b> —{' '}
+              <b style={{ color: stats.rate >= 60 ? 'var(--buy)' : 'var(--neutral)' }}>{stats.rate}% hit rate</b>.
+            </p>
+          )}
+          <p>Alerts are sent from our server only to paid sessions, so they cannot be unlocked from the browser.</p>
+
+          {!plan.configured ? (
+            <div className="err">Payments are not switched on for this server yet.</div>
+          ) : !payment ? (
+            <div className="row">
+              <button className="btn" onClick={buy} disabled={busy}>PAY {idr(plan.priceIdr)}</button>
+            </div>
+          ) : (
+            <div>
+              <p style={{ marginTop: 4 }}>
+                A Midtrans checkout page opened in a new tab — QRIS, bank transfer and
+                e-wallets are all offered there. If it did not open, use the link below.
+              </p>
+              <div className="row">
+                <a className="btn" href={payment.redirectUrl} target="_blank" rel="noopener noreferrer">OPEN CHECKOUT</a>
+                <button className="btn ghost" onClick={check} disabled={busy}>I HAVE PAID — CHECK</button>
+                <button className="btn ghost" onClick={() => setPayment(null)}>CANCEL</button>
+              </div>
+            </div>
+          )}
+          {err && <div className="err">{err}</div>}
+          {msg && <div className="okmsg">{msg}</div>}
+          {plan.sandbox && <div className="err">SANDBOX MODE — no real money moves.</div>}
+        </div>
+      )}
+
+      {feed && feed.length > 0 && (
+        <div className="box">
+          <h2>UNLOCK HISTORY</h2>
+          <p>
+            Every unlock is written into a hash-linked ledger — each record carries the
+            hash of the one before it, so the history cannot be quietly rewritten.
+          </p>
+          <div className="chain">
+            {feed.map((e) => (
+              <div className="link" key={e.hash}>
+                <span className="idx">#{e.index}</span>
+                <span className="who">{e.who}</span>
+                <span className="days">{e.days}d</span>
+                <span className="when">{ago(e.ts)}</span>
+                <span className="hash">{e.hash}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div></div></div>
+  );
+}
+
+/* ── app ──────────────────────────────────────────────────────────────────── */
+function App() {
+  const [view, setView] = useState('tape');
+  const [user, setUser] = useState(null);
+  const [paid, setPaid] = useState(false);
+  const [plan, setPlan] = useState({ priceIdr: 0, days: 30, configured: false, sandbox: true });
+  const [flow, setFlow] = useState({ buyPct: 50, sellPct: 50, buyUsd: 0, sellUsd: 0, trades: 0, live: false });
+  const [price, setPrice] = useState(null);
+  const [dir, setDir] = useState(0);
+  const [status, setStatus] = useState('connecting');
+  const [prints, setPrints] = useState([]);
+  const [alert, setAlert] = useState(null);
+  const [quake, setQuake] = useState(false);
+  const [sound, setSound] = useState(false);
+  const [drama, setDrama] = useState(true);
+  const [signals, setSignals] = useState([]);
+  const [notes, setNotes] = useState([]);
+  const [chat, setChat] = useState([]);
+  const [ledgerFeed, setLedgerFeed] = useState([]);
+  const [whaleLog, setWhaleLog] = useState({ loading: false, error: null, whales: [], stats: {} });
+  const [candles, setCandles] = useState([]);
+  const [tech, setTech] = useState(null);
+  const [chartInterval, setChartInterval] = useState('5m');
+  const [chartSrc, setChartSrc] = useState(() => {
+    try { return localStorage.getItem('tape.chartSrc') || 'binance'; } catch (e) { return 'binance'; }
+  });
+  const pickChart = (v) => {
+    setChartSrc(v);
+    try { localStorage.setItem('tape.chartSrc', v); } catch (e) {}
+  };
+  const [news, setNews] = useState([]);
+  const [newsMeta, setNewsMeta] = useState({ loading: true, at: 0, ok: 0, failed: [] });
+  const [fng, setFng] = useState(null);
+  const [draft, setDraft] = useState('');
+
+  const audio = useRef(null);
+  const dramaRef = useRef(true);
+  const alertTO = useRef(null);
+  const quakeTO = useRef(null);
+  const chatEnd = useRef(null);
+
+  useEffect(() => { dramaRef.current = drama; }, [drama]);
+
+  const refreshMe = useCallback(() => {
+    if (!getToken()) return;
+    api('/me').then((r) => { setUser(r.user); setPaid(r.user.paid); }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    api('/ledger').then((r) => setLedgerFeed(r.feed || [])).catch(() => {});
+    api('/plan').then((r) => setPlan(r.plan)).catch(() => {});
+    refreshMe();
+  }, [refreshMe]);
+
+  /* one socket, re-opened when the token changes so entitlement is re-read */
+  const token = getToken();
+  useEffect(() => {
+    let ws, alive = true, tries = 0, timer;
+    const connect = () => {
+      const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+      ws = new WebSocket(proto + location.host + '/live' + (token ? '?token=' + encodeURIComponent(token) : ''));
+      ws.onopen = () => { tries = 0; };
+      ws.onmessage = (ev) => {
+        let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+        if (m.type === 'hello') {
+          setPaid(!!m.paid);
+          if (m.user) setUser(m.user);
+          if (m.plan) setPlan(m.plan);
+          if (m.content) { setSignals(m.content.signals || []); setNotes(m.content.news || []); setChat(m.content.chat || []); }
+        } else if (m.type === 'flow') {
+          setFlow(m); setPrice(m.price); setDir(m.dir); setStatus(m.status);
+        } else if (m.type === 'alert') {
+          fire(m.alert);
+        } else if (m.type === 'entitlement') {
+          setPaid(!!m.paid);
+          if (m.user) setUser(m.user);
+        } else if (m.type === 'signal') {
+          setSignals((s) => [m.signal].concat(s));
+        } else if (m.type === 'signal-update') {
+          setSignals((s) => s.map((x) => (x.id === m.signal.id ? m.signal : x)));
+        } else if (m.type === 'signal-remove') {
+          setSignals((s) => s.filter((x) => x.id !== m.id));
+        } else if (m.type === 'ledger') {
+          if (m.entry) setLedgerFeed((f) => [m.entry].concat(f).slice(0, 12));
+        } else if (m.type === 'chart') {
+          setCandles(m.candles || []);
+          setTech(m.tech || null);
+          if (m.interval) setChartInterval(m.interval);
+        } else if (m.type === 'candle-tick') {
+          // only the forming candle moves between full refreshes
+          setCandles((cs) => {
+            if (!cs.length || !m.candle) return cs;
+            if (cs[cs.length - 1].t !== m.candle.t) return cs;
+            const next = cs.slice();
+            next[next.length - 1] = m.candle;
+            return next;
+          });
+        } else if (m.type === 'news-feed') {
+          setNews(m.items || []);
+          if (m.fng) setFng(m.fng);
+          setNewsMeta({
+            loading: !!(m.meta && m.meta.loading),
+            at: (m.meta && m.meta.at) || Date.now(),
+            ok: m.meta ? m.meta.ok : 0,
+            failed: (m.meta && m.meta.failed) || []
+          });
+        } else if (m.type === 'news') {
+          setNotes((n) => [m.item].concat(n));
+        } else if (m.type === 'news-remove') {
+          setNotes((n) => n.filter((x) => x.id !== m.id));
+        } else if (m.type === 'chat') {
+          setChat((c) => c.concat(m.msg).slice(-300));
+        }
+      };
+      ws.onclose = () => {
+        if (!alive) return;
+        setStatus('down');
+        tries++;
+        timer = setTimeout(connect, Math.min(800 * tries, 6000));
+      };
+      ws.onerror = () => { try { ws.close(); } catch (e) {} };
+    };
+    connect();
+    return () => { alive = false; clearTimeout(timer); if (ws) { try { ws.close(); } catch (e) {} } };
+  }, [token]);
+
+  const fire = (a) => {
+    setPrints((p) => [a].concat(p).slice(0, 7));
+    const d = a.tier.drama;
+    if (dramaRef.current) {
+      setAlert(a);
+      if (d >= 2) {
+        setQuake(true);
+        clearTimeout(quakeTO.current);
+        quakeTO.current = setTimeout(() => setQuake(false), d === 3 ? 1150 : 420);
+      }
+      clearTimeout(alertTO.current);
+      alertTO.current = setTimeout(() => setAlert(null),
+        d === 3 ? 5200 : d === 2 ? 2800 : d === 1 ? 2200 : 1800);
+    }
+    if (audio.current) {
+      try {
+        audio.current.hit(d, a.buy);
+      } catch (e) {}
+    }
+  };
+
+  /* the server owns the feeds; REFRESH just asks it to pull sooner */
+  const refreshNews = useCallback(() => {
+    setNewsMeta((m) => Object.assign({}, m, { loading: true }));
+    api("/news/refresh", { method: "POST" })
+      .catch(() => {})
+      .then(() => setTimeout(() => setNewsMeta((m) => Object.assign({}, m, { loading: false })), 1500));
+  }, []);
+
+  useEffect(() => { if (chatEnd.current) chatEnd.current.scrollIntoView({ block: 'end' }); }, [chat.length]);
+
+  const toggleSound = () => {
+    if (sound) { if (audio.current) { audio.current.close(); audio.current = null; } setSound(false); }
+    else { audio.current = createAudio(); if (audio.current) { audio.current.ctx.resume(); setSound(true); } }
+  };
+
+  /* whale log — paid only, fetched when the tab is opened */
+  const loadWhales = useCallback(() => {
+    setWhaleLog((w) => Object.assign({}, w, { loading: true, error: null }));
+    api('/whales')
+      .then((r) => setWhaleLog({ loading: false, error: null, whales: r.whales || [], stats: r.stats || {} }))
+      .catch((e) => setWhaleLog({ loading: false, error: e.message, whales: [], stats: {} }));
+  }, []);
+
+  useEffect(() => {
+    if (view === 'whales' && paid && !whaleLog.whales.length && !whaleLog.loading) loadWhales();
+  }, [view, paid, loadWhales, whaleLog.whales.length, whaleLog.loading]);
+
+  /* track record — computed from the signals everyone already receives */
+  const sigStats = (() => {
+    const hits = signals.filter((s) => s.status === 'TARGET HIT').length;
+    const stops = signals.filter((s) => s.status === 'STOPPED').length;
+    const settled = hits + stops;
+    return {
+      total: signals.length,
+      hits, stops, settled,
+      open: signals.filter((s) => s.status === 'OPEN').length,
+      rate: settled ? Math.round((hits / settled) * 100) : 0
+    };
+  })();
+
+  const logout = () => { setToken(''); setUser(null); setPaid(false); location.reload(); };
+
+  const sendChat = async () => {
+    const text = draft.trim();
+    if (!text) return;
+    setDraft('');
+    try { await api('/chat', { method: 'POST', body: { text } }); } catch (e) { setDraft(text); }
+  };
+
+  const r = !flow.live
+    ? { cls: 'idle', text: 'AWAITING FLOW', sub: 'LISTENING TO THE TAPE' }
+    : flow.buyPct > 60 ? { cls: 'bull', text: 'BULLISH', sub: 'BUYERS IN CONTROL — TAKERS LIFTING OFFERS' }
+    : flow.buyPct < 40 ? { cls: 'bear', text: 'BEARISH', sub: 'SELLERS IN CONTROL — TAKERS HITTING BIDS' }
+    : { cls: 'neut', text: 'NEUTRAL', sub: 'BALANCED FLOW — NO CLEAR AGGRESSOR' };
+
+  const statusCls = status === 'live' ? 'live' : status === 'down' ? 'down' : 'wait';
+  const feed = notes.map((n) => ({ id: n.id, ts: n.ts, admin: true, title: n.text }))
+    .concat(news).sort((a, b) => b.ts - a.ts);
+
+  return (
+    <div className={'app' + (quake ? ' quake' : '') + (alert && alert.tier.drama === 3 ? ' big' : '')}>
+      <header>
+        <div className="brand">
+          <div className="wordmark">TAPE</div>
+          <div className={'pill-badge' + (paid ? ' paid' : '')}>{paid ? 'ALERTS ACTIVE' : 'FREE TIER'}</div>
+        </div>
+
+        <nav className="tabs">
+          {['tape', 'news', 'whales', 'signals', 'chat', 'account'].map((k) => (
+            <button key={k} className={'tab' + (view === k ? ' on' : '')} onClick={() => setView(k)}>
+              {k.toUpperCase()}
+            </button>
+          ))}
+        </nav>
+
+        <div className="hud">
+          <div className="px">
+            <span className="k">LAST</span>
+            <span className={'v ' + (dir > 0 ? 'up' : dir < 0 ? 'dn' : '')}>{price ? '$' + px(price) : '—'}</span>
+          </div>
+          <div className="status"><span className={'dot ' + statusCls}></span><span>{String(status).toUpperCase()}</span></div>
+          {paid && <button className="btn ghost sm" onClick={() => setDrama(!drama)}>{drama ? '◱ POP-UPS ON' : '◱ POP-UPS OFF'}</button>}
+          {paid && <button className="btn ghost sm" onClick={toggleSound}>{sound ? '♪ SOUND ON' : '♪ SOUND OFF'}</button>}
+        </div>
+      </header>
+
+      <div className="view" style={{ display: view === 'tape' ? 'flex' : 'none', flexDirection: 'column', flex: '1 1 auto', minHeight: 0 }}>
+        <main>
+          <div className="panel chart">
+            <div className="phead">
+              <span>PRICE · 5M</span>
+              <span className="srcpick">
+                <button className={chartSrc === 'binance' ? 'on' : ''} onClick={() => pickChart('binance')}>BINANCE</button>
+                <button className={chartSrc === 'tradingview' ? 'on' : ''} onClick={() => pickChart('tradingview')}>TRADINGVIEW</button>
+              </span>
+            </div>
+            <div className="tvhost">
+              {chartSrc === 'tradingview'
+                ? <TVWidget src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js" config={CHART_CFG} />
+                : <Chart candles={candles} interval={chartInterval} />}
+            </div>
+          </div>
+          <div className="panel tech">
+            <div className="phead">
+              <span>TECHNICALS</span>
+              <span className="src">{chartSrc === 'tradingview' ? 'TRADINGVIEW' : 'RSI · MA20 · MA50'}</span>
+            </div>
+            <div className="tvhost">
+              {chartSrc === 'tradingview'
+                ? <TVWidget src="https://s3.tradingview.com/external-embedding/embed-widget-technical-analysis.js" config={TECH_CFG} />
+                : <Technicals tech={tech} />}
+            </div>
+          </div>
+        </main>
+
+        <div className="prints">
+          {paid ? (
+            prints.length === 0
+              ? <span className="locked">WATCHING FOR SIZE — NOTHING LARGE YET</span>
+              : prints.map((p, i) => (
+                <span key={p.id} className={'pill ' + (p.buy ? 'b' : 's')} style={{ opacity: Math.max(0.28, 1 - i * 0.13) }}>
+                  <span>{p.tier.glyph}</span>
+                  <span className="t">{p.tier.name}</span>
+                  <span className="v">{p.buy ? '▲' : '▼'} {usd(p.usd)}</span>
+                </span>
+              ))
+          ) : (
+            <span className="locked">
+              🔒 SIZE ALERTS ARE PAID — DOLPHIN, SHARK, WHALE AND HUMPBACK PRINTS
+              <button className="btn sm" onClick={() => setView('account')}>UNLOCK</button>
+            </span>
+          )}
+        </div>
+
+        <section className="strip">
+          <div className="regime">
+            <div className={'verdict ' + r.cls} key={r.text}>{r.text}</div>
+            <div className="sub">{r.sub}</div>
+          </div>
+          <div className="flow">
+            <div className="pcts">
+              <div className="pct b">
+                <div className="lab">BUY PRESSURE</div>
+                <div className="num">{flow.buyPct.toFixed(1)}<small>%</small></div>
+                <div className="usd">{usd(flow.buyUsd)} taker buys</div>
+              </div>
+              <div className="pct s">
+                <div className="lab">SELL PRESSURE</div>
+                <div className="num">{flow.sellPct.toFixed(1)}<small>%</small></div>
+                <div className="usd">{usd(flow.sellUsd)} taker sells</div>
+              </div>
+            </div>
+            <div className="track">
+              <div className="seg b" style={{ width: flow.buyPct + '%' }}></div>
+              <div className="seg s" style={{ width: flow.sellPct + '%' }}></div>
+              <div className="mark" style={{ left: '40%' }}><span>40</span></div>
+              <div className="mark" style={{ left: '60%' }}><span>60</span></div>
+            </div>
+            <div className="scale">
+              <span>ROLLING 60s VOLUME · {Number(flow.trades || 0).toLocaleString()} TRADES</span>
+              <span>TOTAL {usd((flow.buyUsd || 0) + (flow.sellUsd || 0))}</span>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      {view === 'news' && (
+        <div className="page"><div className="card">
+          <div className="phead"><span>NEWS</span><span className="src">BROADCAST ONLY · 10 SOURCES · NO CHAT</span></div>
+          <div className="newsbar">
+            <span>
+              {newsMeta.loading || !newsMeta.at ? 'PULLING…' : 'UPDATED ' + ago(newsMeta.at)}
+              {' · '}{feed.length} STORIES
+              {newsMeta.ok ? ' · ' + newsMeta.ok + ' SOURCES' : ''}
+              {newsMeta.failed && newsMeta.failed.length
+                ? ' · ' + newsMeta.failed.length + ' DOWN' : ''}
+            </span>
+            {fng && <span className="fng">FEAR / GREED <b style={{ color: fng.value >= 60 ? 'var(--buy)' : fng.value <= 40 ? 'var(--sell)' : 'var(--neutral)' }}>{fng.value}</b> {fng.label.toUpperCase()}</span>}
+            <button className="btn ghost sm" onClick={refreshNews} disabled={newsMeta.loading}>REFRESH</button>
+          </div>
+          {feed.length === 0
+            ? <div className="empty-pane">{newsMeta.loading ? 'PULLING HEADLINES…' : 'NOTHING CORRELATED RIGHT NOW'}</div>
+            : <div className="newsfeed">
+                {feed.map((n) => (
+                  <div className={'news' + (n.admin ? ' fromadmin' : '')} key={n.id}>
+                    <div className="nhead">
+                      <span className="nsrc">{n.admin ? '📡 ADMIN' : n.src}</span>
+                      {!n.admin && <span className={'lean ' + n.lean.toLowerCase()}>{n.lean}</span>}
+                      {!n.admin && n.topics.slice(0, 4).map((t) => <span className="topic" key={t}>{t}</span>)}
+                      <span className="nwhen">{ago(n.ts)}</span>
+                    </div>
+                    {n.admin ? <div className="ntitle plain">{n.title}</div>
+                      : <a className="ntitle" href={n.link} target="_blank" rel="noopener noreferrer">{n.title}</a>}
+                  </div>
+                ))}
+              </div>}
+          <div className="lock"><span className="hint">READ ONLY — HEADLINES PULL IN AUTOMATICALLY, ONLY THE ADMIN CAN POST</span></div>
+        </div></div>
+      )}
+
+      {view === 'whales' && (
+        <div className="page"><div className="card">
+          <div className="phead">
+            <span>WHALE LOG</span>
+            <span className="src">{paid ? 'EVERY $100K+ PRINT, KEPT' : 'PAID FEATURE'}</span>
+          </div>
+
+          {!paid ? (
+            <div className="empty-pane">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16, alignItems: 'center' }}>
+                <span style={{ fontSize: 30 }}>🔒</span>
+                <span>ALERTS VANISH IN SECONDS — THE LOG KEEPS THEM</span>
+                <span style={{ color: '#4a5162', maxWidth: 380, lineHeight: 2 }}>
+                  EVERY WHALE AND HUMPBACK PRINT, RECORDED WITH SIZE, SIDE, PRICE
+                  AND TIME — REVIEW THE DAY INSTEAD OF CATCHING IT LIVE
+                </span>
+                <button className="btn" onClick={() => setView('account')}>UNLOCK</button>
+              </div>
+            </div>
+          ) : whaleLog.loading ? (
+            <div className="empty-pane">LOADING THE LOG…</div>
+          ) : whaleLog.error ? (
+            <div className="empty-pane">{String(whaleLog.error).toUpperCase()}</div>
+          ) : whaleLog.whales.length === 0 ? (
+            <div className="empty-pane">NOTHING BIG ENOUGH YET — THE LOG FILLS AS WHALES PRINT</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: '1 1 auto' }}>
+              <div className="newsbar">
+                <span>LAST 24H <b style={{ color: 'var(--txt)' }}>{whaleLog.stats.last24h}</b></span>
+                <span style={{ color: 'var(--buy)' }}>▲ {whaleLog.stats.buys}</span>
+                <span style={{ color: 'var(--sell)' }}>▼ {whaleLog.stats.sells}</span>
+                <span>BIGGEST <b style={{ color: 'var(--neutral)' }}>{usd(whaleLog.stats.biggest)}</b></span>
+                <button className="btn ghost sm" style={{ marginLeft: 'auto' }} onClick={loadWhales}>REFRESH</button>
+              </div>
+              <div className="whalelog">
+                {whaleLog.whales.map((w) => (
+                  <div className={'wrow ' + (w.buy ? 'b' : 's')} key={w.id}>
+                    <span className="g">{w.tier === 'humpback' ? '🐋' : '🐳'}</span>
+                    <span className="wside">{w.buy ? 'BUY' : 'SELL'}</span>
+                    <span className="wamt">{usd(w.usd)}</span>
+                    <span className="wqty">{Number(w.qty).toFixed(3)} BTC</span>
+                    <span className="wat">${px(w.price)}</span>
+                    <span className="wwhen">{ago(w.ts)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div></div>
+      )}
+
+      {view === 'signals' && (
+        <div className="page"><div className="card">
+          <div className="phead"><span>SIGNALS</span><span className="src">POSTED BY THE ADMIN</span></div>
+          {sigStats.settled > 0 && (
+            <div className="newsbar">
+              <span>TRACK RECORD</span>
+              <span>{sigStats.total} POSTED</span>
+              <span style={{ color: 'var(--buy)' }}>{sigStats.hits} HIT</span>
+              <span style={{ color: 'var(--sell)' }}>{sigStats.stops} STOPPED</span>
+              <span style={{ marginLeft: 'auto' }}>
+                HIT RATE <b style={{
+                  fontSize: 15,
+                  color: sigStats.rate >= 60 ? 'var(--buy)' : sigStats.rate >= 40 ? 'var(--neutral)' : 'var(--sell)'
+                }}>{sigStats.rate}%</b>
+              </span>
+            </div>
+          )}
+          {signals.length === 0
+            ? <div className="empty-pane">NO SIGNALS POSTED YET</div>
+            : <div className="sigs">
+                {signals.map((s) => (
+                  <div className={'sig ' + String(s.side).toLowerCase()} key={s.id}>
+                    <div className="top">
+                      <span className="side">{s.side}</span>
+                      <span className="pairtag">{s.pair}</span>
+                      <span className={'st ' + (s.status === 'TARGET HIT' ? 'hit' : s.status === 'STOPPED' ? 'stopped' : '')}>{s.status}</span>
+                    </div>
+                    <div className="levels">
+                      <div className="lvl"><span className="k">ENTRY</span><span className="v">{s.entry}</span></div>
+                      {s.target && <div className="lvl"><span className="k">TARGET</span><span className="v" style={{ color: 'var(--buy)' }}>{s.target}</span></div>}
+                      {s.stop && <div className="lvl"><span className="k">STOP</span><span className="v" style={{ color: 'var(--sell)' }}>{s.stop}</span></div>}
+                    </div>
+                    {s.note && <div className="note">{s.note}</div>}
+                    <div className="when">{ago(s.ts)}</div>
+                  </div>
+                ))}
+              </div>}
+        </div></div>
+      )}
+
+      {view === 'chat' && (
+        <div className="page"><div className="card">
+          <div className="phead"><span>CHAT</span><span className="src">{chat.length} MESSAGES</span></div>
+          {chat.length === 0
+            ? <div className="empty-pane">NOTHING SAID YET</div>
+            : <div className="msgs">
+                {chat.map((m) => (
+                  <div className="msg" key={m.id}>
+                    <span className={'who' + (m.role === 'admin' ? ' admin' : '')}>{m.nick}</span>
+                    <span className="txt">{m.text}</span>
+                    <span className="at">{ago(m.ts)}</span>
+                  </div>
+                ))}
+                <div ref={chatEnd}></div>
+              </div>}
+          {user ? (
+            <div className="composer">
+              <input className="inp" maxLength={500} placeholder="say something" value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') sendChat(); }} />
+              <button className="btn" onClick={sendChat}>SEND</button>
+            </div>
+          ) : (
+            <div className="lock">
+              <span className="hint">SIGN IN TO POST — READING IS FREE</span>
+              <button className="btn ghost sm" onClick={() => setView('account')}>SIGN IN</button>
+            </div>
+          )}
+        </div></div>
+      )}
+
+      {view === 'account' && (
+        <AccountView user={user} plan={plan} refreshMe={refreshMe} feed={ledgerFeed} stats={sigStats}
+          onAuth={(u) => { setUser(u); setPaid(u.paid); }} onLogout={logout} />
+      )}
+
+      <footer>
+        <span>{paid ? 'ALERTS ACTIVE · 🐬 $10K · 🦈 $50K · 🐳 $100K · 🐋 $500K' : 'FREE TIER · LIVE TAPE AND NEWS'}</span>
+        <span>LIVE TAKER FLOW FROM BINANCE — INFORMATION ONLY, NOT FINANCIAL ADVICE</span>
+      </footer>
+
+      {alert && <div className={'flash ' + (alert.buy ? 'b' : 's') + (alert.tier.drama === 3 ? ' big' : alert.tier.drama < 2 ? ' sm' : '')} key={'f' + alert.id}></div>}
+      {alert && alert.tier.drama === 3 && (
+        <div className="rings" key={'r' + alert.id}>
+          <span className={'ring ' + (alert.buy ? 'b' : 's')}></span>
+          <span className={'ring d2 ' + (alert.buy ? 'b' : 's')}></span>
+          <span className={'ring d3 ' + (alert.buy ? 'b' : 's')}></span>
+        </div>
+      )}
+      {alert && (
+        <div className={'card-alert ' + (alert.buy ? 'b' : 's') + (alert.tier.drama === 3 ? ' big' : alert.tier.drama < 2 ? ' sm' : '')} key={'w' + alert.id}>
+          <div className="glyph">{alert.tier.glyph}</div>
+          <div className="tag">{alert.tier.name} DETECTED</div>
+          <div className="side">{alert.buy ? 'MARKET BUY' : 'MARKET SELL'}</div>
+          <div className="amt">{usd(alert.usd)}</div>
+          <div className="meta">{Number(alert.qty).toFixed(3)} BTC @ ${px(alert.price)}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

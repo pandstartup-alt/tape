@@ -166,6 +166,7 @@ function App() {
   const [news, setNews] = useState([]);
   const [users, setUsers] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [ledger, setLedger] = useState({ entries: [], totals: null, verify: null });
   const [form, setForm] = useState(BLANK);
   const [note, setNote] = useState('');
   const [grant, setGrant] = useState({ email: '', days: '30' });
@@ -186,8 +187,13 @@ function App() {
   const loadUsers = useCallback(() => {
     api('/admin/users').then((r) => { setUsers(r.users || []); setOrders(r.orders || []); }).catch(() => {});
   }, []);
+  const loadLedger = useCallback(() => {
+    api('/admin/ledger').then((r) => setLedger(r)).catch(() => {});
+  }, []);
 
-  useEffect(() => { if (user) { loadContent(); loadUsers(); } }, [user, loadContent, loadUsers]);
+  useEffect(() => {
+    if (user) { loadContent(); loadUsers(); loadLedger(); }
+  }, [user, loadContent, loadUsers, loadLedger]);
 
   useEffect(() => {
     if (!armed) return;
@@ -271,7 +277,7 @@ function App() {
       </header>
 
       <div className="tabs">
-        {['signals', 'news', 'members'].map((k) => (
+        {['signals', 'news', 'members', 'ledger'].map((k) => (
           <button key={k} className={'tab' + (tab === k ? ' on' : '')} onClick={() => setTab(k)}>{k.toUpperCase()}</button>
         ))}
       </div>
@@ -439,6 +445,72 @@ function App() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'ledger' && (
+        <div>
+          <div className="card">
+            <div className="chead">
+              <span>PURCHASE LEDGER</span>
+              <button className="btn ghost sm" onClick={loadLedger}>REFRESH</button>
+            </div>
+            <div className="body">
+              <div className="stat">
+                <div><span className="k">ENTRIES</span><span className="v">{ledger.totals ? ledger.totals.count : 0}</span></div>
+                <div><span className="k">RECORDED REVENUE</span><span className="v">{idr(ledger.totals ? ledger.totals.revenue : 0)}</span></div>
+                <div>
+                  <span className="k">CHAIN INTEGRITY</span>
+                  <span className="v" style={{ color: ledger.verify && ledger.verify.ok ? 'var(--buy)' : 'var(--sell)' }}>
+                    {ledger.verify ? (ledger.verify.ok ? 'VALID' : 'BROKEN') : '—'}
+                  </span>
+                </div>
+              </div>
+              {ledger.verify && !ledger.verify.ok && (
+                <div className="err">
+                  Chain broken at entry {ledger.verify.brokenAt} — {ledger.verify.why}.
+                  A record was changed after it was written.
+                </div>
+              )}
+              <div className="hint" style={{ marginTop: 12 }}>
+                Every purchase is hashed together with the hash of the one before it.
+                Altering any past entry breaks every hash after it, and the check above
+                turns red. This is a tamper-evident ledger held on your own server — it
+                is not published to a public blockchain.
+              </div>
+              {ledger.totals && (
+                <div className="hint" style={{ marginTop: 8, wordBreak: 'break-all' }}>
+                  HEAD <span style={{ color: 'var(--neutral)' }}>{ledger.totals.head}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="chead"><span>CHAIN</span><span>NEWEST FIRST</span></div>
+            <div className="body" style={{ padding: 0, overflowX: 'auto' }}>
+              {(!ledger.entries || ledger.entries.length === 0) ? (
+                <div className="body"><div className="hint">Nothing recorded yet. Entries appear when a payment settles or you grant access by hand.</div></div>
+              ) : (
+                <table>
+                  <thead><tr><th>#</th><th>WHO</th><th>AMOUNT</th><th>DAYS</th><th>VIA</th><th>WHEN</th><th>HASH</th></tr></thead>
+                  <tbody>
+                    {ledger.entries.map((e) => (
+                      <tr key={e.hash}>
+                        <td className="em">{e.index}</td>
+                        <td className="em">{e.who}</td>
+                        <td>{e.amount ? idr(e.amount) : '—'}</td>
+                        <td>{e.days}</td>
+                        <td>{String(e.method).toUpperCase()}</td>
+                        <td>{ago(e.ts)}</td>
+                        <td style={{ fontSize: 10, color: '#4a5162' }}>{e.hash.slice(0, 18)}…</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </div>

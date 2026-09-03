@@ -9,6 +9,7 @@ import { Market } from './market.js';
 import { News } from './news.js';
 import { Klines } from './klines.js';
 import * as pay from './payments.js';
+import * as ledger from './ledger.js';
 import {
   sign, register, login, publicUser, userFromToken,
   attachUser, requireUser, requireAdmin
@@ -75,6 +76,7 @@ app.post('/api/payments/webhook', (req, res) => {
   if (result.granted) {
     console.log('[pay] access granted to', result.userId);
     pushEntitlement(result.userId);
+    broadcast({ type: 'ledger', entry: ledger.publicFeed(1)[0] });
   }
   res.json({ ok: true });
 });
@@ -174,10 +176,42 @@ app.post('/api/admin/grant', requireAdmin, (req, res) => {
   const u = store.findUserByEmail(req.body.email);
   if (!u) return bad(res, 404, 'No user with that email');
   const days = parseInt(req.body.days, 10);
-  store.grantAccess(u.id, Number.isFinite(days) ? days : 30);
+  const granted = Number.isFinite(days) ? days : 30;
+  store.grantAccess(u.id, granted);
+  // manual grants go on the chain too, marked so they are not mistaken for sales
+  const entry = ledger.record({
+    orderId: 'manual-' + Date.now().toString(36),
+    userId: u.id, email: u.email, amount: 0, days: granted, method: 'manual'
+  });
   pushEntitlement(u.id);
-  ok(res, { user: publicUser(store.findUserById(u.id)) });
+  broadcast({ type: 'ledger', entry: ledger.publicFeed(1)[0] });
+  ok(res, { user: publicUser(store.findUserById(u.id)), entry });
 });
+
+/* ── whale log (paid) ───────────────────────────────────────────────────── */
+app.get('/api/whales', requireUser, (req, res) => {
+  if (!store.isPaid(req.user)) return bad(res, 403, 'The whale log is part of the paid tier');
+  const list = store.whales(400);
+  const day = Date.now() - 24 * 60 * 60 * 1000;
+  const recent = list.filter((w) => w.ts >= day);
+  ok(res, {
+    whales: list,
+    stats: {
+      total: list.length,
+      last24h: recent.length,
+      buys: recent.filter((w) => w.buy).length,
+      sells: recent.filter((w) => !w.buy).length,
+      biggest: list.reduce((m, w) => (w.usd > m ? w.usd : m), 0)
+    }
+  });
+});
+
+/* ── ledger ─────────────────────────────────────────────────────────────── */
+app.get('/api/ledger', (_req, res) =>
+  ok(res, { feed: ledger.publicFeed(12), totals: { count: ledger.totals().count } }));
+
+app.get('/api/admin/ledger', requireAdmin, (_req, res) =>
+  ok(res, { entries: ledger.all(), totals: ledger.totals(), verify: ledger.verify() }));
 
 /* ── static frontends ───────────────────────────────────────────────────── */
 app.use(express.static(path.join(process.cwd(), 'public'), { extensions: ['html'] }));
@@ -242,7 +276,13 @@ function pushEntitlement(userId) {
 }
 
 market.on('flow', (snap) => broadcast(snap));          // free: aggregates only
-market.on('alert', (a) => broadcast({ type: 'alert', alert: a }, true));   // paid only
+market.on('alert', (a) => {
+  broadcast({ type: 'alert', alert: a }, true);                           // paid only
+  // whales and humpbacks are kept so paid members can review them later
+  if (a.tier.drama >= 2) {
+    store.addWhale({ ts: a.ts, usd: a.usd, qty: a.qty, price: a.price, buy: a.buy, tier: a.tier.key });
+  }
+});
 market.start();
 
 news.on('update', (p) => broadcast(p));                // headlines: free for everyone

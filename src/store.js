@@ -7,7 +7,7 @@ import path from 'node:path';
 const DIR = path.join(process.cwd(), 'data');
 const FILE = path.join(DIR, 'db.json');
 
-const EMPTY = { users: [], orders: [], signals: [], news: [], chat: [] };
+const EMPTY = { users: [], orders: [], signals: [], news: [], chat: [], ledger: [], whales: [] };
 
 let db = EMPTY;
 let writing = false;
@@ -139,3 +139,21 @@ export function addChat(msg) {
   save();
   return db.chat[db.chat.length - 1];
 }
+
+/* ── whale log ──────────────────────────────────────────────────────────────
+   Alerts vanish after a few seconds on screen, so the notable ones are kept
+   here for paid members to look back over. Capped so the file cannot grow
+   without bound. */
+export function addWhale(w) {
+  const d = data();
+  if (!Array.isArray(d.whales)) d.whales = [];
+  d.whales.push(Object.assign({ id: uid() }, w));
+  if (d.whales.length > 800) d.whales = d.whales.slice(-800);
+  save();
+  return d.whales[d.whales.length - 1];
+}
+
+export const whales = (limit = 400) => {
+  const d = data();
+  return (Array.isArray(d.whales) ? d.whales : []).slice(-limit).reverse();
+};

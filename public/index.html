@@ -209,6 +209,32 @@
   .perks{list-style:none;margin:14px 0}
   .perks li{font-size:11px;color:var(--dim);line-height:2.1;display:flex;gap:9px}
   .perks li b{color:var(--txt);font-weight:600}
+  /* whale log */
+  .whalelog{flex:1 1 auto;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+  .wrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 12px;
+    background:#0a0c11;border:1px solid var(--line);border-radius:7px}
+  .wrow.b{border-left:3px solid var(--buy)}
+  .wrow.s{border-left:3px solid var(--sell)}
+  .wrow .g{font-size:14px}
+  .wrow .wside{font-size:10px;font-weight:800;letter-spacing:.16em;min-width:38px}
+  .wrow.b .wside{color:var(--buy)}
+  .wrow.s .wside{color:var(--sell)}
+  .wrow .wamt{font-size:15px;font-weight:800;font-variant-numeric:tabular-nums;min-width:78px}
+  .wrow .wqty{font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums}
+  .wrow .wat{font-size:11px;color:#4a5162;font-variant-numeric:tabular-nums}
+  .wrow .wwhen{margin-left:auto;font-size:9px;color:#3d4354}
+  /* hash-linked purchase ledger */
+  .chain{display:flex;flex-direction:column}
+  .link{position:relative;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    padding:9px 11px;background:#0a0c11;border:1px solid var(--line);border-radius:6px;margin-bottom:14px}
+  .link:not(:last-child)::after{content:"";position:absolute;left:20px;bottom:-14px;width:1px;height:14px;
+    background:linear-gradient(180deg,rgba(0,229,143,.5),rgba(0,229,143,.1))}
+  .link .idx{font-size:10px;font-weight:700;color:var(--buy);min-width:26px}
+  .link .who{font-size:11px;color:var(--txt)}
+  .link .days{font-size:9px;letter-spacing:.14em;color:var(--dim);border:1px solid var(--line);border-radius:3px;padding:2px 6px}
+  .link .when{font-size:9px;color:#3d4354}
+  .link .hash{width:100%;font-size:8.5px;letter-spacing:.06em;color:#3d4354;word-break:break-all;
+    border-top:1px solid rgba(27,31,43,.8);padding-top:6px}
   .qrbox{display:flex;flex-direction:column;align-items:center;gap:12px;padding:16px;background:#fff;border-radius:10px}
   .qrbox img{width:230px;height:230px;display:block}
   .va{font-size:24px;font-weight:800;letter-spacing:.08em;color:var(--txt);font-variant-numeric:tabular-nums}
@@ -489,88 +515,184 @@ function Technicals({ tech }) {
     </div>
   );
 }
-
-/* ── alert sound ──────────────────────────────────────────────────────────── */
+/* ── alert sound ────────────────────────────────────────────────────────────
+   Four escalating hits sharing one signal path:
+     master → compressor → [dry + reverb] → out
+   Every tier makes a noise now, and the big ones are layered — transient click,
+   sub drop, detuned body, noise splash, alert tones, and for a humpback a riser
+   that builds before the impact lands. */
 function createAudio() {
   const AC = window.AudioContext || window.webkitAudioContext;
   if (!AC) return null;
   const ctx = new AC();
+
   const master = ctx.createGain();
-  master.gain.value = 0.85;
-  master.connect(ctx.destination);
-  let nb = null;
-  const noise = () => {
-    if (!nb) {
-      const len = Math.floor(ctx.sampleRate * 0.8);
-      nb = ctx.createBuffer(1, len, ctx.sampleRate);
-      const d = nb.getChannelData(0);
-      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
+  master.gain.value = 0.95;
+
+  // stops the layers from stacking into clipping
+  const comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -14;
+  comp.knee.value = 22;
+  comp.ratio.value = 8;
+  comp.attack.value = 0.004;
+  comp.release.value = 0.22;
+
+  // a short synthetic room so hits have some tail instead of stopping dead
+  const verb = ctx.createConvolver();
+  (function buildImpulse() {
+    const len = Math.floor(ctx.sampleRate * 1.6);
+    const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = buf.getChannelData(ch);
+      for (let i = 0; i < len; i++) {
+        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6);
+      }
     }
-    return nb;
+    verb.buffer = buf;
+  })();
+  const wet = ctx.createGain();
+  wet.gain.value = 0.24;
+
+  master.connect(comp);
+  comp.connect(ctx.destination);
+  comp.connect(verb);
+  verb.connect(wet);
+  wet.connect(ctx.destination);
+
+  let noiseBuf = null;
+  const noise = () => {
+    if (!noiseBuf) {
+      const len = Math.floor(ctx.sampleRate * 2);
+      noiseBuf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    }
+    return noiseBuf;
   };
+
+  const env = (node, t, peak, attack, decay) => {
+    node.gain.setValueAtTime(0.0001, t);
+    node.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + attack);
+    node.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+  };
+
+  const osc = (type, f0, f1, t, dur, peak, pan) => {
+    const o = ctx.createOscillator();
+    o.type = type;
+    o.frequency.setValueAtTime(f0, t);
+    if (f1 && f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur * 0.9);
+    const g = ctx.createGain();
+    env(g, t, peak, 0.012, dur);
+    o.connect(g);
+    if (pan && ctx.createStereoPanner) {
+      const p = ctx.createStereoPanner();
+      p.pan.value = pan;
+      g.connect(p); p.connect(master);
+    } else {
+      g.connect(master);
+    }
+    o.start(t); o.stop(t + dur + 0.05);
+    return o;
+  };
+
+  const burst = (t, dur, peak, from, to, q) => {
+    const n = ctx.createBufferSource();
+    n.buffer = noise();
+    n.loop = true;
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.Q.value = q || 1;
+    f.frequency.setValueAtTime(from, t);
+    f.frequency.exponentialRampToValueAtTime(Math.max(40, to), t + dur);
+    const g = ctx.createGain();
+    env(g, t, peak, 0.008, dur);
+    n.connect(f); f.connect(g); g.connect(master);
+    n.start(t); n.stop(t + dur + 0.05);
+  };
+
   return {
     ctx,
-    tick(isBuy) {
+
+    /* level 0 dolphin · 1 shark · 2 whale · 3 humpback */
+    hit(level, isBuy) {
       if (ctx.state === 'suspended') ctx.resume();
       const t = ctx.currentTime;
-      const o = ctx.createOscillator(); o.type = 'triangle';
-      o.frequency.setValueAtTime(isBuy ? 660 : 440, t);
-      o.frequency.exponentialRampToValueAtTime(isBuy ? 880 : 330, t + 0.07);
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.07, t + 0.008);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
-      o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.14);
-    },
-    boom(isBuy, big) {
-      if (ctx.state === 'suspended') ctx.resume();
-      const t = ctx.currentTime;
-      const tail = big ? 2.2 : 0.8;
-      const o = ctx.createOscillator(); o.type = 'sine';
-      o.frequency.setValueAtTime((isBuy ? 195 : 155) * (big ? 0.7 : 1), t);
-      o.frequency.exponentialRampToValueAtTime((isBuy ? 55 : 36) * (big ? 0.6 : 1), t + tail * 0.85);
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(big ? 1.0 : 0.42, t + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + tail);
-      o.connect(g); g.connect(master); o.start(t); o.stop(t + tail + 0.05);
-      if (big) {
-        const sw = ctx.createOscillator(); sw.type = 'sawtooth';
-        sw.frequency.setValueAtTime(isBuy ? 82 : 62, t);
-        sw.frequency.exponentialRampToValueAtTime(isBuy ? 41 : 31, t + 1.6);
-        const sf = ctx.createBiquadFilter(); sf.type = 'lowpass'; sf.frequency.setValueAtTime(400, t);
-        const sg = ctx.createGain();
-        sg.gain.setValueAtTime(0.0001, t);
-        sg.gain.exponentialRampToValueAtTime(0.3, t + 0.25);
-        sg.gain.exponentialRampToValueAtTime(0.0001, t + 1.8);
-        sw.connect(sf); sf.connect(sg); sg.connect(master); sw.start(t); sw.stop(t + 1.85);
+      const dir = isBuy ? 1 : -1;
+
+      if (level === 0) {
+        // dolphin — a small tap, easy to hear a hundred times an hour
+        osc('sine', isBuy ? 880 : 620, isBuy ? 1180 : 460, t, 0.1, 0.09, dir * 0.3);
+        burst(t, 0.06, 0.03, 2600, 900, 2);
+        return;
       }
-      const tones = big ? (isBuy ? [784, 1175, 1568] : [622, 415, 311]) : (isBuy ? [784, 1175] : [622, 415]);
+
+      if (level === 1) {
+        // shark — a firmer double blip
+        osc('triangle', isBuy ? 700 : 520, isBuy ? 980 : 380, t, 0.14, 0.14, dir * 0.25);
+        osc('triangle', isBuy ? 1050 : 780, isBuy ? 1400 : 560, t + 0.075, 0.13, 0.09, -dir * 0.25);
+        burst(t, 0.1, 0.06, 3400, 700, 1.6);
+        return;
+      }
+
+      const big = level === 3;
+
+      // transient click so the hit has an edge before the weight arrives
+      burst(t, big ? 0.05 : 0.035, big ? 0.5 : 0.3, 6000, 1800, 0.8);
+
+      // humpback only: a riser that builds into the impact
+      if (big) {
+        const r = ctx.createBufferSource();
+        r.buffer = noise();
+        r.loop = true;
+        const rf = ctx.createBiquadFilter();
+        rf.type = 'bandpass';
+        rf.Q.value = 3.5;
+        rf.frequency.setValueAtTime(300, t - 0.0001);
+        rf.frequency.exponentialRampToValueAtTime(7000, t + 0.62);
+        const rg = ctx.createGain();
+        rg.gain.setValueAtTime(0.0001, t);
+        rg.gain.exponentialRampToValueAtTime(0.22, t + 0.55);
+        rg.gain.exponentialRampToValueAtTime(0.0001, t + 0.72);
+        r.connect(rf); rf.connect(rg); rg.connect(master);
+        r.start(t); r.stop(t + 0.8);
+      }
+
+      const boom = big ? t + 0.6 : t;      // the humpback lands after its riser
+      const tail = big ? 2.6 : 1.15;
+
+      // sub drop — the weight
+      osc('sine', (isBuy ? 190 : 150) * (big ? 0.62 : 1),
+                  (isBuy ? 52 : 34) * (big ? 0.55 : 1), boom, tail, big ? 1.0 : 0.5, 0);
+
+      // detuned body, two saws slightly apart for thickness
+      osc('sawtooth', isBuy ? 116 : 92, isBuy ? 58 : 44, boom, tail * 0.7, big ? 0.24 : 0.12, -0.35);
+      osc('sawtooth', isBuy ? 119 : 95, isBuy ? 59 : 45, boom, tail * 0.7, big ? 0.24 : 0.12, 0.35);
+
+      // splash
+      burst(boom, big ? 1.0 : 0.5, big ? 0.34 : 0.16, 3200, 220, 0.7);
+
+      // alert tones — three notes for a humpback, two for a whale
+      const tones = big
+        ? (isBuy ? [784, 1175, 1568] : [622, 415, 311])
+        : (isBuy ? [784, 1175] : [622, 415]);
       tones.forEach((f, i) => {
-        const off = i * (big ? 0.22 : 0.17);
-        const p = ctx.createOscillator(); p.type = 'square';
-        p.frequency.setValueAtTime(f, t + off);
-        const pg = ctx.createGain();
-        pg.gain.setValueAtTime(0.0001, t + off);
-        pg.gain.exponentialRampToValueAtTime(big ? 0.22 : 0.09, t + off + 0.012);
-        pg.gain.exponentialRampToValueAtTime(0.0001, t + off + (big ? 0.42 : 0.26));
-        p.connect(pg); pg.connect(master); p.start(t + off); p.stop(t + off + (big ? 0.45 : 0.28));
+        const off = boom + i * (big ? 0.2 : 0.16);
+        osc('square', f, f, off, big ? 0.42 : 0.28, big ? 0.2 : 0.1, (i % 2 ? 0.4 : -0.4));
+        osc('sine', f * 2, f * 2, off, big ? 0.3 : 0.2, big ? 0.07 : 0.035, (i % 2 ? -0.4 : 0.4));
       });
-      const n = ctx.createBufferSource(); n.buffer = noise();
-      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass';
-      lp.frequency.setValueAtTime(2200, t);
-      lp.frequency.exponentialRampToValueAtTime(220, t + 0.5);
-      const ng = ctx.createGain();
-      ng.gain.setValueAtTime(big ? 0.45 : 0.16, t);
-      ng.gain.exponentialRampToValueAtTime(0.0001, t + (big ? 0.9 : 0.45));
-      n.connect(lp); lp.connect(ng); ng.connect(master); n.start(t); n.stop(t + (big ? 0.95 : 0.5));
+
+      // humpback afterglow — a slow swell under the tail
+      if (big) {
+        osc('triangle', isBuy ? 82 : 62, isBuy ? 41 : 31, boom + 0.1, 2.2, 0.16, 0);
+      }
     },
+
     close() { try { ctx.close(); } catch (e) {} }
   };
 }
 
 /* ── account / paywall ────────────────────────────────────────────────────── */
-function AccountView({ user, plan, onAuth, onLogout, refreshMe }) {
+function AccountView({ user, plan, onAuth, onLogout, refreshMe, feed, stats }) {
   const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
@@ -659,9 +781,18 @@ function AccountView({ user, plan, onAuth, onLogout, refreshMe }) {
           <ul className="perks">
             <li><b>🐬 🦈 🐳 🐋</b> every size alert, dolphin through humpback</li>
             <li><b>Pop-ups</b> full-screen alert cards, graded by trade size</li>
-            <li><b>Sound</b> and desktop notifications when a whale prints</li>
+            <li><b>Sound</b> layered alerts you can hear from another room</li>
+            <li><b>Whale log</b> every $100k+ print kept, so you can review the day</li>
             <li><b>Live ticker</b> of every large trade as it crosses</li>
           </ul>
+          {stats && stats.settled > 0 && (
+            <p>
+              Signal track record: <b style={{ color: 'var(--txt)' }}>{stats.total} posted</b>,{' '}
+              <b style={{ color: 'var(--buy)' }}>{stats.hits} hit target</b>,{' '}
+              <b style={{ color: 'var(--sell)' }}>{stats.stops} stopped</b> —{' '}
+              <b style={{ color: stats.rate >= 60 ? 'var(--buy)' : 'var(--neutral)' }}>{stats.rate}% hit rate</b>.
+            </p>
+          )}
           <p>Alerts are sent from our server only to paid sessions, so they cannot be unlocked from the browser.</p>
 
           {!plan.configured ? (
@@ -688,6 +819,27 @@ function AccountView({ user, plan, onAuth, onLogout, refreshMe }) {
           {plan.sandbox && <div className="err">SANDBOX MODE — no real money moves.</div>}
         </div>
       )}
+
+      {feed && feed.length > 0 && (
+        <div className="box">
+          <h2>UNLOCK HISTORY</h2>
+          <p>
+            Every unlock is written into a hash-linked ledger — each record carries the
+            hash of the one before it, so the history cannot be quietly rewritten.
+          </p>
+          <div className="chain">
+            {feed.map((e) => (
+              <div className="link" key={e.hash}>
+                <span className="idx">#{e.index}</span>
+                <span className="who">{e.who}</span>
+                <span className="days">{e.days}d</span>
+                <span className="when">{ago(e.ts)}</span>
+                <span className="hash">{e.hash}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div></div></div>
   );
 }
@@ -710,6 +862,8 @@ function App() {
   const [signals, setSignals] = useState([]);
   const [notes, setNotes] = useState([]);
   const [chat, setChat] = useState([]);
+  const [ledgerFeed, setLedgerFeed] = useState([]);
+  const [whaleLog, setWhaleLog] = useState({ loading: false, error: null, whales: [], stats: {} });
   const [candles, setCandles] = useState([]);
   const [tech, setTech] = useState(null);
   const [chartInterval, setChartInterval] = useState('5m');
@@ -739,6 +893,7 @@ function App() {
   }, []);
 
   useEffect(() => {
+    api('/ledger').then((r) => setLedgerFeed(r.feed || [])).catch(() => {});
     api('/plan').then((r) => setPlan(r.plan)).catch(() => {});
     refreshMe();
   }, [refreshMe]);
@@ -771,6 +926,8 @@ function App() {
           setSignals((s) => s.map((x) => (x.id === m.signal.id ? m.signal : x)));
         } else if (m.type === 'signal-remove') {
           setSignals((s) => s.filter((x) => x.id !== m.id));
+        } else if (m.type === 'ledger') {
+          if (m.entry) setLedgerFeed((f) => [m.entry].concat(f).slice(0, 12));
         } else if (m.type === 'chart') {
           setCandles(m.candles || []);
           setTech(m.tech || null);
@@ -829,8 +986,7 @@ function App() {
     }
     if (audio.current) {
       try {
-        if (d === 1) audio.current.tick(a.buy);
-        else if (d >= 2) audio.current.boom(a.buy, d === 3);
+        audio.current.hit(d, a.buy);
       } catch (e) {}
     }
   };
@@ -849,6 +1005,31 @@ function App() {
     if (sound) { if (audio.current) { audio.current.close(); audio.current = null; } setSound(false); }
     else { audio.current = createAudio(); if (audio.current) { audio.current.ctx.resume(); setSound(true); } }
   };
+
+  /* whale log — paid only, fetched when the tab is opened */
+  const loadWhales = useCallback(() => {
+    setWhaleLog((w) => Object.assign({}, w, { loading: true, error: null }));
+    api('/whales')
+      .then((r) => setWhaleLog({ loading: false, error: null, whales: r.whales || [], stats: r.stats || {} }))
+      .catch((e) => setWhaleLog({ loading: false, error: e.message, whales: [], stats: {} }));
+  }, []);
+
+  useEffect(() => {
+    if (view === 'whales' && paid && !whaleLog.whales.length && !whaleLog.loading) loadWhales();
+  }, [view, paid, loadWhales, whaleLog.whales.length, whaleLog.loading]);
+
+  /* track record — computed from the signals everyone already receives */
+  const sigStats = (() => {
+    const hits = signals.filter((s) => s.status === 'TARGET HIT').length;
+    const stops = signals.filter((s) => s.status === 'STOPPED').length;
+    const settled = hits + stops;
+    return {
+      total: signals.length,
+      hits, stops, settled,
+      open: signals.filter((s) => s.status === 'OPEN').length,
+      rate: settled ? Math.round((hits / settled) * 100) : 0
+    };
+  })();
 
   const logout = () => { setToken(''); setUser(null); setPaid(false); location.reload(); };
 
@@ -878,7 +1059,7 @@ function App() {
         </div>
 
         <nav className="tabs">
-          {['tape', 'news', 'signals', 'chat', 'account'].map((k) => (
+          {['tape', 'news', 'whales', 'signals', 'chat', 'account'].map((k) => (
             <button key={k} className={'tab' + (view === k ? ' on' : '')} onClick={() => setView(k)}>
               {k.toUpperCase()}
             </button>
@@ -1010,9 +1191,74 @@ function App() {
         </div></div>
       )}
 
+      {view === 'whales' && (
+        <div className="page"><div className="card">
+          <div className="phead">
+            <span>WHALE LOG</span>
+            <span className="src">{paid ? 'EVERY $100K+ PRINT, KEPT' : 'PAID FEATURE'}</span>
+          </div>
+
+          {!paid ? (
+            <div className="empty-pane">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16, alignItems: 'center' }}>
+                <span style={{ fontSize: 30 }}>🔒</span>
+                <span>ALERTS VANISH IN SECONDS — THE LOG KEEPS THEM</span>
+                <span style={{ color: '#4a5162', maxWidth: 380, lineHeight: 2 }}>
+                  EVERY WHALE AND HUMPBACK PRINT, RECORDED WITH SIZE, SIDE, PRICE
+                  AND TIME — REVIEW THE DAY INSTEAD OF CATCHING IT LIVE
+                </span>
+                <button className="btn" onClick={() => setView('account')}>UNLOCK</button>
+              </div>
+            </div>
+          ) : whaleLog.loading ? (
+            <div className="empty-pane">LOADING THE LOG…</div>
+          ) : whaleLog.error ? (
+            <div className="empty-pane">{String(whaleLog.error).toUpperCase()}</div>
+          ) : whaleLog.whales.length === 0 ? (
+            <div className="empty-pane">NOTHING BIG ENOUGH YET — THE LOG FILLS AS WHALES PRINT</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: '1 1 auto' }}>
+              <div className="newsbar">
+                <span>LAST 24H <b style={{ color: 'var(--txt)' }}>{whaleLog.stats.last24h}</b></span>
+                <span style={{ color: 'var(--buy)' }}>▲ {whaleLog.stats.buys}</span>
+                <span style={{ color: 'var(--sell)' }}>▼ {whaleLog.stats.sells}</span>
+                <span>BIGGEST <b style={{ color: 'var(--neutral)' }}>{usd(whaleLog.stats.biggest)}</b></span>
+                <button className="btn ghost sm" style={{ marginLeft: 'auto' }} onClick={loadWhales}>REFRESH</button>
+              </div>
+              <div className="whalelog">
+                {whaleLog.whales.map((w) => (
+                  <div className={'wrow ' + (w.buy ? 'b' : 's')} key={w.id}>
+                    <span className="g">{w.tier === 'humpback' ? '🐋' : '🐳'}</span>
+                    <span className="wside">{w.buy ? 'BUY' : 'SELL'}</span>
+                    <span className="wamt">{usd(w.usd)}</span>
+                    <span className="wqty">{Number(w.qty).toFixed(3)} BTC</span>
+                    <span className="wat">${px(w.price)}</span>
+                    <span className="wwhen">{ago(w.ts)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div></div>
+      )}
+
       {view === 'signals' && (
         <div className="page"><div className="card">
           <div className="phead"><span>SIGNALS</span><span className="src">POSTED BY THE ADMIN</span></div>
+          {sigStats.settled > 0 && (
+            <div className="newsbar">
+              <span>TRACK RECORD</span>
+              <span>{sigStats.total} POSTED</span>
+              <span style={{ color: 'var(--buy)' }}>{sigStats.hits} HIT</span>
+              <span style={{ color: 'var(--sell)' }}>{sigStats.stops} STOPPED</span>
+              <span style={{ marginLeft: 'auto' }}>
+                HIT RATE <b style={{
+                  fontSize: 15,
+                  color: sigStats.rate >= 60 ? 'var(--buy)' : sigStats.rate >= 40 ? 'var(--neutral)' : 'var(--sell)'
+                }}>{sigStats.rate}%</b>
+              </span>
+            </div>
+          )}
           {signals.length === 0
             ? <div className="empty-pane">NO SIGNALS POSTED YET</div>
             : <div className="sigs">
@@ -1068,7 +1314,7 @@ function App() {
       )}
 
       {view === 'account' && (
-        <AccountView user={user} plan={plan} refreshMe={refreshMe}
+        <AccountView user={user} plan={plan} refreshMe={refreshMe} feed={ledgerFeed} stats={sigStats}
           onAuth={(u) => { setUser(u); setPaid(u.paid); }} onLogout={logout} />
       )}
 

@@ -7,7 +7,8 @@
    only by a signed Midtrans notification or a server-to-server status check —
    never by the browser claiming it paid. */
 import crypto from 'node:crypto';
-import { createOrder, findOrder, grantAccess, save, data } from './store.js';
+import { createOrder, findOrder, grantAccess, save, data, findUserById } from './store.js';
+import * as ledger from './ledger.js';
 
 const PROD = String(process.env.MIDTRANS_PRODUCTION || 'false') === 'true';
 const BASE = PROD ? 'https://api.midtrans.com' : 'https://api.sandbox.midtrans.com';
@@ -121,6 +122,7 @@ export function handleNotification(n) {
   order.paidAt = Date.now();
   save();
   grantAccess(order.userId, order.days);
+  ledger.record({ orderId: order.orderId, userId: order.userId, email: (findUserById(order.userId) || {}).email, amount: order.amount, days: order.days, method: order.method });
   return { ok: true, granted: true, userId: order.userId };
 }
 
@@ -145,6 +147,7 @@ export async function syncOrder(orderId) {
     order.paidAt = Date.now();
     save();
     grantAccess(order.userId, order.days);
+    ledger.record({ orderId: order.orderId, userId: order.userId, email: (findUserById(order.userId) || {}).email, amount: order.amount, days: order.days, method: order.method });
     return { granted: true, status: n.transaction_status };
   }
   return { granted: false, status: n.transaction_status };

@@ -170,6 +170,7 @@ function App() {
   const [form, setForm] = useState(BLANK);
   const [note, setNote] = useState('');
   const [grant, setGrant] = useState({ email: '', days: '30' });
+  const [reset, setReset] = useState({ email: '', temp: '' });
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
   const [armed, setArmed] = useState(null);
@@ -246,6 +247,14 @@ function App() {
   const removeNote = async (id) => {
     try { await api('/news/' + id, { method: 'DELETE' }); setArmed(null); } catch (e) { setErr(e.message); }
   };
+  const doReset = async () => {
+    setErr('');
+    try {
+      const r = await api('/admin/reset-password', { method: 'POST', body: { email: reset.email } });
+      setReset({ email: r.email, temp: r.temp });
+    } catch (e) { setErr(e.message); setReset((s) => ({ email: s.email, temp: '' })); }
+  };
+
   const doGrant = async () => {
     setErr('');
     try {
@@ -405,6 +414,26 @@ function App() {
                   onChange={(e) => setGrant(Object.assign({}, grant, { days: e.target.value }))} />
                 <button className="btn" onClick={doGrant}>GRANT</button>
               </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="chead"><span>LOCKED OUT? ISSUE A TEMPORARY PASSWORD</span><span>THEN SEND IT TO THEM</span></div>
+            <div className="body">
+              <div className="row">
+                <input className="inp" placeholder="member email" value={reset.email}
+                  onChange={(e) => setReset({ email: e.target.value, temp: '' })} />
+                <button className="btn ghost" onClick={doReset}>ISSUE PASSWORD</button>
+              </div>
+              {reset.temp && (
+                <div className="okmsg" style={{ fontSize: 13, letterSpacing: '.1em' }}>
+                  New password for {reset.email}: <b style={{ color: 'var(--neutral)', fontSize: 15 }}>{reset.temp}</b>
+                  <div className="hint" style={{ marginTop: 6 }}>
+                    Send this to them, and tell them to change it in ACCOUNT once they are back in.
+                    It is shown once — reissue if you lose it.
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

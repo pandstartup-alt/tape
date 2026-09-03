@@ -700,6 +700,18 @@ function AccountView({ user, plan, onAuth, onLogout, refreshMe, feed, stats }) {
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
   const [payment, setPayment] = useState(null);
+  const [pw, setPw] = useState({ open: false, current: '', next: '' });
+  const [pwMsg, setPwMsg] = useState(null);
+
+  const changePw = async () => {
+    setPwMsg(null); setBusy(true);
+    try {
+      await api('/password', { method: 'POST', body: { current: pw.current, next: pw.next } });
+      setPw({ open: false, current: '', next: '' });
+      setPwMsg({ ok: true, text: 'Password changed.' });
+    } catch (e) { setPwMsg({ ok: false, text: e.message }); }
+    setBusy(false);
+  };
 
   const submit = async () => {
     setErr(''); setBusy(true);
@@ -771,7 +783,27 @@ function AccountView({ user, plan, onAuth, onLogout, refreshMe, feed, stats }) {
               ? 'Alerts active until ' + new Date(user.paidUntil).toLocaleString()
               : 'Free tier — live tape and news only.'}
         </p>
-        <button className="btn ghost" onClick={onLogout}>SIGN OUT</button>
+        <div className="row">
+          <button className="btn ghost" onClick={onLogout}>SIGN OUT</button>
+          <button className="btn ghost" onClick={() => { setPw({ open: !pw.open, current: '', next: '' }); setPwMsg(null); }}>
+            {pw.open ? 'CANCEL' : 'CHANGE PASSWORD'}
+          </button>
+        </div>
+        {pw.open && (
+          <div style={{ marginTop: 12 }}>
+            <div className="row">
+              <input className="inp" type="password" placeholder="current password" value={pw.current}
+                onChange={(e) => setPw(Object.assign({}, pw, { current: e.target.value }))} />
+            </div>
+            <div className="row">
+              <input className="inp" type="password" placeholder="new password (min 8)" value={pw.next}
+                onChange={(e) => setPw(Object.assign({}, pw, { next: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === 'Enter') changePw(); }} />
+              <button className="btn" onClick={changePw} disabled={busy}>SAVE</button>
+            </div>
+            {pwMsg && <div className={pwMsg.ok ? 'okmsg' : 'err'}>{pwMsg.text}</div>}
+          </div>
+        )}
       </div>
 
       {!user.paid && (
